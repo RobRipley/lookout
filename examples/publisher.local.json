@@ -2,6 +2,7 @@
   "projectId": "example-project",
   "title": "Website launch",
   "lead": "Alex",
+  "repository": "example-owner/website",
   "canister": "backend",
   "environment": "local",
   "identity": "lookout-example",

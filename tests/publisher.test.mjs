@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import {
   buildCallArgs,
   candidText,
@@ -13,6 +14,8 @@ import {
   parseArgs,
   parseIcpJson,
   parseMarkdownBoard,
+  canonicalRepository,
+  resolveRepository,
   presentationCandidText,
   priorityCandidText,
   validatePriorities,
@@ -130,6 +133,178 @@ test('parses JSON-wrapped board snapshots and detects an exact content no-op', (
   assert.equal(boards[0].revision, 4);
   assert.equal(isNoop({ data: { ...data, sourceUpdatedAt: 100 }, revision: 4 }, { ...data, sourceUpdatedAt: 200 }), true);
   assert.equal(isNoop({ data: { ...data, sourceRevision: 'old' }, revision: 4 }, { ...data }), false);
+});
+
+test('repository values normalize canonical names and explicit Git origins safely', () => {
+  assert.equal(canonicalRepository('example-owner/example-repo'), 'example-owner/example-repo');
+  assert.equal(canonicalRepository('example-repo'), 'example-repo');
+  assert.equal(canonicalRepository('https://github.com/example-owner/example-repo.git'), 'example-owner/example-repo');
+  assert.equal(canonicalRepository('ssh://git@github.com/example-owner/example-repo.git'), 'example-owner/example-repo');
+  assert.equal(canonicalRepository('git@github.com:example-owner/example-repo.git'), 'example-owner/example-repo');
+  assert.equal(canonicalRepository('https://gitlab.com/example-owner/example-repo.git'), 'gitlab.com/example-owner/example-repo');
+  assert.equal(canonicalRepository('https://gitlab.com/example-owner/subgroup/example-repo.git'), 'gitlab.com/example-owner/subgroup/example-repo');
+  assert.equal(canonicalRepository('ssh://git@gitlab.com/example-owner/group/subgroup/example-repo.git'), 'gitlab.com/example-owner/group/subgroup/example-repo');
+  assert.notEqual(canonicalRepository('https://github.com/example-owner/example-repo.git'), canonicalRepository('https://gitlab.com/example-owner/example-repo.git'));
+  assert.equal(canonicalRepository('gitlab.com/example-owner/group/example-repo'), 'gitlab.com/example-owner/group/example-repo');
+  assert.throws(() => canonicalRepository('https://user:password@github.com/example-owner/repo.git'), /credentials/);
+  assert.throws(() => canonicalRepository('ssh://alice:secret@github.com/example-owner/repo.git'), /credentials/);
+  assert.throws(() => canonicalRepository('/Users/alex/work/repo'), /local path/);
+  assert.throws(() => canonicalRepository('C:\\work\\repo'), /local path/);
+  assert.throws(() => canonicalRepository('../repo'), /dot/);
+  assert.throws(() => canonicalRepository('owner/../repo'), /dot/);
+  assert.throws(() => canonicalRepository('https://gitlab.com/owner/../repo.git'), /dot/);
+  assert.throws(() => canonicalRepository('ssh://git@gitlab.com/owner/./repo.git'), /dot/);
+  assert.throws(() => canonicalRepository('owner/group/repo'), /begin with a hostname/);
+  assert.throws(() => canonicalRepository('x'.repeat(161)), /exceeds 160/);
+});
+
+test('repository inference is scoped to the source Git root and uses origin without network access', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'lookout-repository-inference-'));
+  try {
+    const sourceDir = join(dir, 'projection');
+    const sourcePath = join(sourceDir, 'board.json');
+    await mkdir(sourceDir);
+    await writeFile(sourcePath, '{}');
+    const initialized = spawnSync('git', ['-C', sourceDir, 'init'], { encoding: 'utf8' });
+    assert.equal(initialized.status, 0, initialized.stderr);
+    const remote = spawnSync('git', ['-C', sourceDir, 'remote', 'add', 'origin', 'git@github.com:example-owner/source-project.git'], { encoding: 'utf8' });
+    assert.equal(remote.status, 0, remote.stderr);
+    assert.equal(await resolveRepository({}, sourcePath), 'example-owner/source-project');
+    assert.equal(await resolveRepository({ repository: 'https://github.com/explicit-owner/project.git' }, sourcePath), 'explicit-owner/project');
+    await assert.rejects(() => resolveRepository({ repository: 'not a repo' }, sourcePath), /valid owner\/repository path/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('source Git root directory name is the inference fallback when origin is absent', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'lookout-repository-fallback-'));
+  try {
+    const root = join(parent, 'fictional-repository');
+    await mkdir(root);
+    const sourcePath = join(root, 'board.json');
+    await writeFile(sourcePath, '{}');
+    const initialized = spawnSync('git', ['-C', root, 'init'], { encoding: 'utf8' });
+    assert.equal(initialized.status, 0, initialized.stderr);
+    assert.equal(await resolveRepository({}, sourcePath), 'fictional-repository');
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});
+
+test('repository association dry-run, no-op, update, and readback do not republish board content', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'lookout-project-info-flow-'));
+  try {
+    const sourcePath = join(dir, 'source.md');
+    const configPath = join(dir, 'manifest.json');
+    await writeFile(sourcePath, board('| EX-1 | In progress | Alex | Scope | Evidence |'));
+    const manifest = { ...config, canister: 'backend', repository: 'example-owner/website', source: { ...config.source, path: sourcePath } };
+    await writeFile(configPath, JSON.stringify(manifest));
+    const sourceStat = await stat(sourcePath, { bigint: true });
+    const snapshot = parseMarkdownBoard(await readFile(sourcePath, 'utf8'), manifest, sourceStat.mtimeNs);
+    const currentBoard = { data: snapshot, revision: 5 };
+    let projectInfo = [];
+    const calls = [];
+    const icpCall = async (_config, method, args, options) => {
+      calls.push({ method, args, options });
+      if (method === 'listBoards') return [currentBoard];
+      if (method === 'listProjectInfo') return projectInfo;
+      if (method === 'publishProjectInfo') {
+        projectInfo = [{ projectId: 'example-project', data: { repository: /repository = "([^"]+)"/.exec(args)?.[1], }, publishedAt: 99n, publishedBy: 'publisher' }];
+        return { result: 'ok' };
+      }
+      return { result: 'ok' };
+    };
+    const logger = { log() {} };
+    const dry = await runPublisher({ configPath, logger, icpCall });
+    assert.equal(dry.repository, 'example-owner/website');
+    assert.equal(dry.repositoryNoop, false);
+    assert.ok(!calls.some((call) => call.options?.query === false));
+    calls.length = 0;
+
+    const first = await runPublisher({ configPath, publish: true, logger, icpCall });
+    assert.equal(first.repositoryNoop, false);
+    assert.equal(calls.findIndex((call) => call.method === 'publishProjectInfo') > calls.findIndex((call) => call.method === 'listBoards'), true);
+    assert.ok(!calls.some((call) => call.method === 'publish'), 'association changes must not publish unchanged board content');
+    const infoWrite = calls.find((call) => call.method === 'publishProjectInfo');
+    assert.equal(infoWrite.options.query, false);
+    assert.match(infoWrite.args, /^\("example-project", record \{ repository = "example-owner\/website" \}\)/);
+    assert.doesNotMatch(infoWrite.args, /sourceRevision/);
+    assert.equal(calls.filter((call) => call.method === 'listProjectInfo').length, 2, 'current read followed by readback');
+
+    calls.length = 0;
+    const unchanged = await runPublisher({ configPath, publish: true, logger, icpCall });
+    assert.equal(unchanged.outcome, 'noop');
+    assert.equal(unchanged.repositoryNoop, true);
+    assert.ok(!calls.some((call) => call.method === 'publishProjectInfo'));
+
+    manifest.repository = 'example-owner/renamed-project';
+    await writeFile(configPath, JSON.stringify(manifest));
+    calls.length = 0;
+    const changed = await runPublisher({ configPath, publish: true, logger, icpCall });
+    assert.equal(changed.repositoryNoop, false);
+    assert.ok(!calls.some((call) => call.method === 'publish'), 'metadata-only update must preserve board freshness');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('new board is published before repository association and association readback is verified', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'lookout-new-project-info-'));
+  try {
+    const sourcePath = join(dir, 'source.md');
+    const configPath = join(dir, 'manifest.json');
+    await writeFile(sourcePath, board('| EX-1 | In progress | Alex | Scope | Evidence |'));
+    const manifest = { ...config, canister: 'backend', repository: 'example-owner/new-project', source: { ...config.source, path: sourcePath } };
+    await writeFile(configPath, JSON.stringify(manifest));
+    const calls = [];
+    let boardRows = [];
+    let infoRows = [];
+    const icpCall = async (_config, method, args) => {
+      calls.push(method);
+      if (method === 'listBoards') return boardRows;
+      if (method === 'publish') {
+        const sourceStat = await stat(sourcePath, { bigint: true });
+        boardRows = [{ data: parseMarkdownBoard(await readFile(sourcePath, 'utf8'), manifest, sourceStat.mtimeNs), revision: 1 }];
+        return { result: 1 };
+      }
+      if (method === 'listProjectInfo') return infoRows;
+      if (method === 'publishProjectInfo') {
+        infoRows = [{ projectId: 'example-project', data: { repository: 'example-owner/new-project' }, publishedAt: 1n, publishedBy: 'publisher' }];
+        return {};
+      }
+      return {};
+    };
+    const result = await runPublisher({ configPath, publish: true, logger: { log() {} }, icpCall });
+    assert.equal(result.repositoryNoop, false);
+    assert.ok(calls.indexOf('publish') < calls.indexOf('publishProjectInfo'));
+    assert.ok(calls.filter((method) => method === 'listBoards').length >= 2, 'board is read back before association write');
+    assert.equal(calls.at(-1), 'listProjectInfo', 'association is read back after write');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('unavailable repository inference preserves legacy metadata without API calls', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'lookout-no-project-info-'));
+  try {
+    const sourcePath = join(dir, 'source.md');
+    const configPath = join(dir, 'manifest.json');
+    await writeFile(sourcePath, board('| EX-1 | In progress | Alex | Scope | Evidence |'));
+    await writeFile(configPath, JSON.stringify({ ...config, canister: 'backend', source: { ...config.source, path: sourcePath } }));
+    const calls = [];
+    const result = await runPublisher({ configPath, logger: { log() {} }, icpCall: async (_config, method) => { calls.push(method); return []; } });
+    assert.equal(result.repository, null);
+    assert.ok(!calls.includes('listProjectInfo'));
+    assert.ok(!calls.includes('publishProjectInfo'));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('raw listProjectInfo JSON response is extracted', () => {
+  const rows = [{ projectId: 'p', data: { repository: 'example-owner/repo' }, publishedAt: 1, publishedBy: 'alice' }];
+  assert.deepEqual(parseIcpJson(JSON.stringify({ result: rows }), 'listProjectInfo'), rows);
 });
 
 test('dry-run never calls publish and publish uses the revision read by listBoards', async () => {
@@ -510,7 +685,7 @@ test('priorities-only mode never reads source or presentation files and verifies
   try {
     const configPath = join(dir, 'manifest.json');
     const priorityPath = join(dir, 'priorities.json');
-    await writeFile(configPath, JSON.stringify({ projectId: 'example-project', canister: 'backend', identity: 'lookout-example', priorityPath: 'priorities.json', source: { path: 'does-not-exist.md' }, presentationPath: 'also-does-not-exist.json' }));
+    await writeFile(configPath, JSON.stringify({ projectId: 'example-project', canister: 'backend', identity: 'lookout-example', repository: 'example-owner/repository', priorityPath: 'priorities.json', source: { path: 'does-not-exist.md' }, presentationPath: 'also-does-not-exist.json' }));
     await writeFile(priorityPath, JSON.stringify({ items: [{ id: 'R1', title: 'Resume', status: 'ready', blockedReason: '', nextAction: 'Continue from checkpoint', cardIds: ['EX-1'] }] }));
     const liveBoard = { data: { projectId: 'example-project', sourceRevision: 'live-rev', cards: [{ id: 'EX-1' }] }, revision: 7 };
     let saved;
@@ -529,10 +704,12 @@ test('priorities-only mode never reads source or presentation files and verifies
     assert.equal(dry.outcome, 'dry-run');
     assert.equal(dry.priorities.sourceRevision, 'live-rev');
     assert.ok(calls.every((call) => ['listBoards', 'listPriorities'].includes(call.method) && call.options.query));
+    assert.ok(!calls.some((call) => ['listProjectInfo', 'publishProjectInfo'].includes(call.method)));
     calls.length = 0;
     const published = await runPublisher({ configPath, prioritiesOnly: true, publish: true, logger: { log() {} }, icpCall });
     assert.equal(published.outcome, 'published');
     assert.deepEqual(calls.map((call) => call.method), ['listBoards', 'listPriorities', 'publishPriorities', 'listPriorities']);
+    assert.ok(!calls.some((call) => ['listProjectInfo', 'publishProjectInfo'].includes(call.method)));
     assert.equal(calls[2].options.query, false);
     assert.match(calls[2].args, /sourceRevision = "live-rev"/);
     calls.length = 0;

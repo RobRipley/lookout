@@ -21,6 +21,14 @@ type Session =
    isAdmin: bool;
    "principal": principal;
  };
+type ProjectInfoInput = record {repository: text;};
+type ProjectInfo =
+ record {
+   data: ProjectInfoInput;
+   projectId: text;
+   publishedAt: int;
+   publishedBy: principal;
+ };
 type PriorityList =
  record {
    data: PriorityInput;
@@ -121,12 +129,14 @@ type Backend =
    listPlainSummaries: () -> (vec PlainSummary) query;
    listPresentations: () -> (vec Presentation) query;
    listPriorities: () -> (vec PriorityList) query;
+   listProjectInfo: () -> (vec ProjectInfo) query;
    publish: (input: SnapshotInput, expectedRevision: nat) -> (nat);
    publishCompletionMetadata: (projectId: text, sourceRevision: text,
     entries: vec CompletionEntry) -> ();
    publishPlainSummary: (projectId: text, input: PlainSummaryInput) -> ();
    publishPresentation: (projectId: text, input: PresentationInput) -> ();
    publishPriorities: (projectId: text, input: PriorityInput) -> ();
+   publishProjectInfo: (projectId: text, input: ProjectInfoInput) -> ();
    redeemInvite: (secret: text) -> ();
    restoreCard: (projectId: text, cardId: text, completedAt: int,
     sourceRevision: text) -> (Card);

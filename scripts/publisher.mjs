@@ -4,8 +4,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { readFile, mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
-import { dirname } from 'node:path';
+import { resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REQUIRED_HEADERS = ['ID', 'State', 'Accountable owner', 'Scope', 'Evidence / next action'];
@@ -499,12 +498,137 @@ export function parseIcpJson(stdout, method) {
     if (!summaries) throw new Error(`Could not find listPlainSummaries values in icp JSON response: ${JSON.stringify(parsed).slice(0, 500)}`);
     return summaries;
   }
+  if (method === 'listProjectInfo') {
+    const projectInfo = findProjectInfo(parsed);
+    if (!projectInfo) throw new Error(`Could not find listProjectInfo values in icp JSON response: ${JSON.stringify(parsed).slice(0, 500)}`);
+    return projectInfo;
+  }
   if (method === 'listPriorities') {
     const priorities = findPresentations(parsed);
     if (!priorities) throw new Error(`Could not find listPriorities values in icp JSON response: ${JSON.stringify(parsed).slice(0, 500)}`);
     return priorities;
   }
   return parsed;
+}
+
+function findProjectInfo(value, seen = new Set()) {
+  if (typeof value === 'string') {
+    try { return findProjectInfo(JSON.parse(value), seen); } catch { return null; }
+  }
+  if (value == null || typeof value !== 'object' || seen.has(value)) return null;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    if (value.every((item) => item && typeof item === 'object' && 'projectId' in item && 'data' in item && 'publishedAt' in item && 'publishedBy' in item)) return value;
+    for (const item of value) { const found = findProjectInfo(item, seen); if (found) return found; }
+    return null;
+  }
+  for (const item of Object.values(value)) { const found = findProjectInfo(item, seen); if (found) return found; }
+  return null;
+}
+
+export function canonicalRepository(value) {
+  if (typeof value !== 'string') throw new Error('Repository must be a canonical name or owner/repository slug.');
+  const input = value.trim();
+  if (!input || input.length > 2048) throw new Error('Repository must be a canonical name or owner/repository slug.');
+  let hostname = null;
+  let path = input;
+  if (/^https:\/\//i.test(input) || /^ssh:\/\//i.test(input)) {
+    const rawUrlPath = /^[a-z]+:\/\/[^/?#]*(\/[^?#]*)?/i.exec(input)?.[1] ?? '';
+    validateRepositoryPath(rawUrlPath);
+    let url;
+    try { url = new URL(input); } catch { throw new Error('Repository origin must be a valid HTTPS or SSH Git URL.'); }
+    if ((url.protocol !== 'https:' && url.protocol !== 'ssh:') || url.password || (url.protocol === 'https:' && url.username) || (url.protocol === 'ssh:' && url.username && url.username !== 'git') || url.port || url.search || url.hash) {
+      throw new Error('Repository origin must not contain credentials, ports, query strings, or fragments.');
+    }
+    hostname = url.hostname.toLowerCase();
+    path = rawUrlPath.replace(/^\/+/, '').replace(/\/+$/, '');
+  } else if (/^[^/@:]+@[^/:]+:.+$/.test(input)) {
+    const match = /^([^/@:]+)@([^/:]+):(.+)$/.exec(input);
+    if (!match || match[1] !== 'git') throw new Error('SSH repository origin must use the standard git user without embedded credentials.');
+    hostname = match[2].toLowerCase();
+    path = match[3];
+  }
+  if (path.startsWith('/') || path.includes('\\') || path.includes(':')) throw new Error('Repository must not be a local path.');
+  const parts = path.split('/');
+  if (parts.some((part) => part === '.' || part === '..')) throw new Error('Repository paths must not contain dot or dot-dot segments.');
+  if (parts.at(-1)?.toLowerCase().endsWith('.git')) parts[parts.length - 1] = parts.at(-1).slice(0, -4);
+  if (parts.some((part) => !part || !/^[A-Za-z0-9_.-]+$/.test(part))) {
+    throw new Error('Repository must be a name or a valid owner/repository path.');
+  }
+  if (hostname) {
+    if (!isRepositoryHostname(hostname)) throw new Error('Repository origin must have a valid hostname.');
+    if (parts.length < 2) throw new Error('Repository origin must include at least owner and repository path segments.');
+    path = hostname === 'github.com' || hostname === 'www.github.com'
+      ? parts.join('/')
+      : `${hostname}/${parts.join('/')}`;
+  } else if (parts.length > 2) {
+    if (!isRepositoryHostname(parts[0])) throw new Error('Multi-segment repository values must begin with a hostname.');
+    path = parts[0].toLowerCase() === 'github.com' || parts[0].toLowerCase() === 'www.github.com'
+      ? parts.slice(1).join('/')
+      : `${parts[0].toLowerCase()}/${parts.slice(1).join('/')}`;
+  } else {
+    path = parts.join('/');
+  }
+  if (Array.from(path).length > 160) throw new Error('Repository name exceeds 160 characters.');
+  return path;
+}
+
+function validateRepositoryPath(path) {
+  if (path.includes('\\') || path.includes('%')) throw new Error('Repository origins must not contain encoded or local-path segments.');
+  for (const segment of path.split('/')) {
+    if (segment === '.' || segment === '..') throw new Error('Repository paths must not contain dot or dot-dot segments.');
+  }
+}
+
+function isRepositoryHostname(hostname) {
+  if (typeof hostname !== 'string' || !hostname.includes('.') || hostname.length > 253) return false;
+  return hostname.split('.').every((label) => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label));
+}
+
+export async function resolveRepository(config, sourcePath) {
+  if (Object.prototype.hasOwnProperty.call(config, 'repository')) return canonicalRepository(config.repository);
+  const resolvedSource = resolve(sourcePath);
+  let sourceDir = dirname(resolvedSource);
+  try { if ((await stat(resolvedSource)).isDirectory()) sourceDir = resolvedSource; } catch {}
+  const rootResult = spawnSync('git', ['-C', sourceDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', windowsHide: true });
+  if (rootResult.error || rootResult.status !== 0) return null;
+  const root = rootResult.stdout.trim();
+  if (!root) return null;
+  const remoteResult = spawnSync('git', ['-C', root, 'remote', 'get-url', 'origin'], { encoding: 'utf8', windowsHide: true });
+  if (!remoteResult.error && remoteResult.status === 0 && remoteResult.stdout.trim()) {
+    try { return canonicalRepository(remoteResult.stdout.trim()); } catch { return null; }
+  }
+  const rootName = basename(root);
+  try { return canonicalRepository(rootName); } catch { return null; }
+}
+
+function projectInfoCandidText(projectId, repository) {
+  return `(${candidText(projectId)}, record { repository = ${candidText(repository)} })\n`;
+}
+
+function isProjectInfoNoop(existing, repository) {
+  return existing?.data?.repository === repository;
+}
+
+async function publishProjectInfo(config, icpCall, projectId, repository, logger) {
+  if (!repository) return { repositoryNoop: null, projectInfoResponse: null };
+  const currentList = await icpCall(config, 'listProjectInfo', '()\n', { query: true });
+  const current = currentList.find((item) => item.projectId === projectId) ?? null;
+  const repositoryNoop = isProjectInfoNoop(current, repository);
+  if (repositoryNoop) {
+    logger.log(`Repository association for ${projectId} is unchanged.`);
+    return { repositoryNoop, projectInfoResponse: null };
+  }
+  const boards = await icpCall(config, 'listBoards', '()\n', { query: true });
+  if (!boards.some((item) => item.data?.projectId === projectId)) {
+    throw new Error(`Cannot publish repository association for ${projectId} without an existing published board.`);
+  }
+  const projectInfoResponse = await icpCall(config, 'publishProjectInfo', projectInfoCandidText(projectId, repository), { query: false });
+  const afterList = await icpCall(config, 'listProjectInfo', '()\n', { query: true });
+  const after = afterList.find((item) => item.projectId === projectId) ?? null;
+  if (!isProjectInfoNoop(after, repository)) throw new Error(`Repository association readback for ${projectId} did not match ${repository}.`);
+  logger.log(`Published and verified repository association ${repository} for ${projectId}.`);
+  return { repositoryNoop: false, projectInfoResponse };
 }
 
 function plainSummaryCandidText(projectId, input) {
@@ -598,6 +722,7 @@ export async function runPublisher({ configPath, publish = false, prioritiesOnly
   const sourcePath = resolve(config.source.path);
   const [source, sourceStat] = await Promise.all([readFile(sourcePath, 'utf8'), stat(sourcePath, { bigint: true })]);
   const snapshot = parseMarkdownBoard(source, config, sourceStat.mtimeNs);
+  const repository = await resolveRepository(config, sourcePath);
   const presentation = await loadPresentation(config, absConfig, source, snapshot);
   const priorities = await loadPriorities(config, absConfig, snapshot);
   const completionMetadata = await loadCompletionMetadata(config, absConfig, snapshot);
@@ -633,9 +758,16 @@ export async function runPublisher({ configPath, publish = false, prioritiesOnly
       priorityNoop = isPriorityNoop(currentPriorities, priorities);
       logger.log(priorityNoop ? 'Priority metadata is unchanged.' : 'Priority metadata would be published with this source revision.');
     }
+    let repositoryNoop = null;
+    if (repository) {
+      const existingProjectInfo = await icpCall(config, 'listProjectInfo', '()\n', { query: true });
+      const currentProjectInfo = existingProjectInfo.find((item) => item.projectId === snapshot.projectId) ?? null;
+      repositoryNoop = isProjectInfoNoop(currentProjectInfo, repository);
+      logger.log(repositoryNoop ? 'Repository association is unchanged.' : `Repository association would be published as ${repository}.`);
+    }
     logger.log('No upload occurred. Re-run with --publish to publish this snapshot.');
     if (completionMetadata?.entries.length) logger.log(completionNoop ? 'Completion metadata is unchanged.' : `Completion metadata would publish ${completionMetadata.entries.length} explicit UTC timestamp${completionMetadata.entries.length === 1 ? '' : 's'}.`);
-    return { outcome: 'dry-run', snapshot, presentation, presentationNoop, plainSummaryNoop, priorities, priorityNoop, completionMetadata, completionNoop, expectedRevision: expectedRevision.toString() };
+    return { outcome: 'dry-run', snapshot, repository, repositoryNoop, presentation, presentationNoop, plainSummaryNoop, priorities, priorityNoop, completionMetadata, completionNoop, expectedRevision: expectedRevision.toString() };
   }
   let boardResponse = null;
   if (boardNoop) {
@@ -666,6 +798,7 @@ export async function runPublisher({ configPath, publish = false, prioritiesOnly
     }
   }
   const { plainSummaryNoop, plainSummaryResponse } = await publishPlainSummary(config, icpCall, snapshot, presentation, logger);
+  const { repositoryNoop, projectInfoResponse } = await publishProjectInfo(config, icpCall, snapshot.projectId, repository, logger);
   let priorityResponse = null;
   let priorityNoop = null;
   if (priorities) {
@@ -696,11 +829,11 @@ export async function runPublisher({ configPath, publish = false, prioritiesOnly
     if (!isCompletionMetadataNoop(after, completionMetadata, snapshot.projectId)) throw new Error(`Completion metadata readback for ${snapshot.projectId} did not match the requested timestamps.`);
     logger.log(`Published and verified ${completionMetadata.entries.length} explicit completion timestamp${completionMetadata.entries.length === 1 ? '' : 's'} for ${snapshot.projectId}.`);
   }
-  if (boardNoop && (!presentation || presentationNoop) && (presentation?.plainSummary === undefined || plainSummaryNoop) && (!priorities || priorityNoop) && (!completionMetadata?.entries.length || completionNoop)) {
+  if (boardNoop && (!presentation || presentationNoop) && (presentation?.plainSummary === undefined || plainSummaryNoop) && (!priorities || priorityNoop) && (!completionMetadata?.entries.length || completionNoop) && (!repository || repositoryNoop)) {
     logger.log(`No changes for ${snapshot.projectId}; board and requested presentation are current.`);
-    return { outcome: 'noop', snapshot, presentation, presentationNoop, plainSummaryNoop, priorities, completionMetadata, completionNoop, expectedRevision: expectedRevision.toString() };
+    return { outcome: 'noop', snapshot, repository, repositoryNoop, presentation, presentationNoop, plainSummaryNoop, priorities, completionMetadata, completionNoop, expectedRevision: expectedRevision.toString() };
   }
-  return { outcome: 'published', snapshot, presentation, priorities, completionMetadata, expectedRevision: expectedRevision.toString(), boardResponse, presentationResponse, presentationNoop, plainSummaryNoop, plainSummaryResponse, priorityResponse, priorityNoop, completionResponse, completionNoop };
+  return { outcome: 'published', snapshot, repository, repositoryNoop, presentation, priorities, completionMetadata, expectedRevision: expectedRevision.toString(), boardResponse, presentationResponse, presentationNoop, plainSummaryNoop, plainSummaryResponse, projectInfoResponse, priorityResponse, priorityNoop, completionResponse, completionNoop };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {

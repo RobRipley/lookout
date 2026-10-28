@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Square, Folder, LockKeyhole, RefreshCw, Search, X, Clock3, LogOut, ExternalLink, ArrowRight, AlertTriangle, Download, Check, Eye, Moon, Sun, Maximize2, Minimize2 } from 'lucide-react';
+import { Square, Folder, LockKeyhole, RefreshCw, Search, X, Clock3, LogOut, ExternalLink, ArrowRight, AlertTriangle, Download, Check, Eye, Moon, Sun, Maximize2, Minimize2, GitBranch } from 'lucide-react';
 import { auth, connect, captureInvitation } from './api';
 import './style.css';
 import { definitionsFor } from './readability';
@@ -8,6 +8,7 @@ import { ExplainedText, TermDialog } from './ExplainedText';
 import { prioritiesForCard } from './priorities';
 import { PriorityPanel } from './PriorityPanel';
 import { ProjectStatus } from './ProjectStatus';
+import { groupBoardsByRepository } from './repositories';
 import { PriorityCardBadge } from './PriorityCardBadge';
 import { boardColumns, cardInColumn } from './boardColumns';
 
@@ -49,6 +50,7 @@ function App() {
   const [phase, setPhase] = useState('loading');
   const [session, setSession] = useState(null);
   const [boards, setBoards] = useState([]);
+  const [projectInfo, setProjectInfo] = useState([]);
   const [presentations, setPresentations] = useState([]);
   const [plainSummaries, setPlainSummaries] = useState([]);
   const [statusMode, setStatusMode] = useState(() => {
@@ -93,21 +95,21 @@ function App() {
       const nextSession = await api.current.session();
       if (epoch !== generation.current) return;
       if (!nextSession.canRead || !auth.isAuthenticated()) {
-        setBoards([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(nextSession); setPhase(auth.isAuthenticated() ? 'pending' : 'signedout'); return;
+        setBoards([]); setProjectInfo([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(nextSession); setPhase(auth.isAuthenticated() ? 'pending' : 'signedout'); return;
       }
       const actor = api.current;
-      const [next, nextPresentations, nextPriorities, nextPlainSummaries] = await Promise.all([actor.listBoards(), actor.listPresentations(), actor.listPriorities(), actor.listPlainSummaries()]);
+      const [next, nextPresentations, nextPriorities, nextPlainSummaries, nextProjectInfo] = await Promise.all([actor.listBoards(), actor.listPresentations(), actor.listPriorities(), actor.listPlainSummaries(), actor.listProjectInfo()]);
       const [archivePages, nextManaged] = await Promise.all([
         Promise.all(next.map(b => readAllArchives(actor, b.data.projectId, () => epoch !== generation.current))),
         Promise.all(next.map(async b => [b.data.projectId, await actor.canManageProject(b.data.projectId)])),
       ]);
       const nextArchives = archivePages.flat();
       if (epoch !== generation.current) return;
-      setBoards(next); setPresentations(nextPresentations); setPlainSummaries(nextPlainSummaries); setPriorities(nextPriorities); setArchives(nextArchives); setManagedProjects(nextManaged.filter(([, allowed]) => allowed).map(([id]) => id)); setSession(nextSession); setNow(Date.now()); setError('');
+      setBoards(next); setProjectInfo(nextProjectInfo); setPresentations(nextPresentations); setPlainSummaries(nextPlainSummaries); setPriorities(nextPriorities); setArchives(nextArchives); setManagedProjects(nextManaged.filter(([, allowed]) => allowed).map(([id]) => id)); setSession(nextSession); setNow(Date.now()); setError('');
       setSelected(current => next.some(b => b.data.projectId === current) ? current : next[0]?.data.projectId || null);
     } catch {
       if (epoch === generation.current) {
-        setBoards([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setError('Could not refresh your boards. Check your connection or sign in again.');
+        setBoards([]); setProjectInfo([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setError('Could not refresh your boards. Check your connection or sign in again.');
       }
     } finally {
       if (inFlight.current === epoch) inFlight.current = null;
@@ -148,7 +150,7 @@ function App() {
     };
     window.addEventListener('hashchange', invitationChanged);
     const unsubscribe = auth.subscribe(() => {
-      if (!auth.isAuthenticated()) { generation.current++; api.current = null; setBoards([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(null); setPhase('signedout'); }
+      if (!auth.isAuthenticated()) { generation.current++; api.current = null; setBoards([]); setProjectInfo([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(null); setPhase('signedout'); }
     });
     return () => { unsubscribe(); window.removeEventListener('hashchange', invitationChanged); };
   }, [initialize]);
@@ -184,7 +186,7 @@ function App() {
   }, [cardSize]);
 
   async function signIn() { setBusy(true); setError(''); try { await auth.signIn({ maxTimeToLive: 28800000000000n }); await initialize(); } catch { setError('Sign-in was not completed. You can try again.'); } finally { setBusy(false); } }
-  async function signOut() { generation.current++; api.current = null; setBoards([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(null); setBalance(null); setPhase('signedout'); sessionStorage.removeItem('lookout-invite'); try { await auth.signOut(); } catch { setError('Local view cleared. Sign-out could not be confirmed; close this tab if you are on a shared device.'); } }
+  async function signOut() { generation.current++; api.current = null; setBoards([]); setProjectInfo([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(null); setBalance(null); setPhase('signedout'); sessionStorage.removeItem('lookout-invite'); try { await auth.signOut(); } catch { setError('Local view cleared. Sign-out could not be confirmed; close this tab if you are on a shared device.'); } }
   function select(id) { setTerm(null); setSelected(id); setQuery(''); setBlockedOnly(false); setShowArchives(false); setCard(null); }
   async function archiveTask(task) {
     if (!board || !managedProjects.includes(board.data.projectId) || !isCompleted(task.state)) return;
@@ -204,6 +206,7 @@ function App() {
     const blob = new Blob([JSON.stringify(boards, (_, v) => typeof v === 'bigint' ? v.toString() : v, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `lookout-${new Date().toISOString().slice(0,10)}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  const repositoryGroups = groupBoardsByRepository(boards, projectInfo);
   const board = boards.find(b => b.data.projectId === selected);
   const presentation = presentations.find(item => item.projectId === selected);
   const plainSummary = plainSummaries.find(item => item.projectId === selected);
@@ -240,11 +243,14 @@ function App() {
   return <div className={`app${fullBoard ? ' full-board-view' : ''}${fullBoard && cardSize === 'compact' ? ' compact-cards' : ''}`}>
     <aside className="sidebar" inert={Boolean(card || term)}><a className="brand" href="/" aria-label="Lookout home"><Square size={28} strokeWidth={1.5}/>Lookout</a>
       <div className="nav-label">Projects <span>{boards.length}</span></div>
-      <nav aria-label="Projects">{boards.map(b => <button key={b.data.projectId} className={`project ${selected === b.data.projectId ? 'active' : ''}`} onClick={() => select(b.data.projectId)}><Folder size={19}/><span>{b.data.title}</span>{stale(b.publishedAt) && <span className="stale-dot" title="Snapshot has not been published in over 24 hours"/>}</button>)}</nav>
+      <nav aria-label="Projects">{repositoryGroups.map(group => <section key={group.key} className="repository-group" aria-label={group.repository || group.label}>
+        <h2 className="repository-heading" title={group.repository || undefined}><GitBranch size={14} aria-hidden="true"/><span>{group.label}</span><span className="repository-count">{group.boards.length}</span></h2>
+        <div className="repository-projects">{group.boards.map(b => <button key={b.data.projectId} className={`project ${selected === b.data.projectId ? 'active' : ''}`} aria-current={selected === b.data.projectId ? 'page' : undefined} onClick={() => select(b.data.projectId)}><Folder size={17}/><span>{b.data.title}</span>{stale(b.publishedAt) && <span className="stale-dot" title="Snapshot has not been published in over 24 hours"/>}</button>)}</div>
+      </section>)}</nav>
       <div className="sidebar-bottom"><div className="sidebar-theme">{themeButton}</div><div><LockKeyhole size={16}/>Private workspace</div>{balance !== null && <span className="cycles">Backend reserve · {(Number(balance)/1e12).toFixed(2)}T cycles</span>}<div className="side-actions"><button onClick={exportBoards} title="Download board snapshots"><Download size={15}/>Export</button><button onClick={signOut}><LogOut size={15}/>Sign out</button></div></div>
     </aside>
     <main className="workspace" inert={Boolean(card || term)}><div className="mobile-brand"><Square size={23}/>Lookout{themeButton}<button aria-label="Sign out" onClick={signOut}><LogOut size={18}/></button></div>
-      {boards.length > 0 && <label className="mobile-project">Project<select value={selected || ''} onChange={e => select(e.target.value)}>{boards.map(b => <option key={b.data.projectId} value={b.data.projectId}>{b.data.title}</option>)}</select></label>}
+      {boards.length > 0 && <label className="mobile-project">Project<select value={selected || ''} onChange={e => select(e.target.value)}>{repositoryGroups.map(group => <optgroup key={group.key} label={group.label}>{group.boards.map(b => <option key={b.data.projectId} value={b.data.projectId}>{b.data.title}</option>)}</optgroup>)}</select></label>}
       {error && <div role="alert" className="error refresh-error">{error}<button onClick={refresh}>Try again</button></div>}
       {board ? <>
         <header className="board-header"><div><h1>{board.data.title}</h1><div className="lead"><Avatar name={board.data.lead}/><span>Lead: {board.data.lead}</span><span className="view-label"><Eye size={14}/>Read-only</span></div></div><div className="refresh-area"><span className={stale(board.publishedAt) ? 'stale' : 'muted'} title={`Snapshot published ${date(board.publishedAt)}`}>Published {age(board.publishedAt, now)}</span><button className="outline" onClick={refresh} disabled={busy}><RefreshCw size={17} className={busy ? 'spinning' : ''}/>{busy ? 'Refreshing' : 'Refresh'}</button></div></header>

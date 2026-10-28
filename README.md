@@ -15,7 +15,7 @@ The source board stays authoritative. Lookout is its readable, shared window.
 
 ## What it does
 
-- Switch between projects with their original workflow columns.
+- Switch between projects grouped by their source repository, with their original workflow columns.
 - Toggle between Plain English and Technical project status beside ranked sub-project priorities. Your preference is remembered, with Plain English as the default.
 - See each task's priority number and owner; hover for its sub-project name.
 - Click unfamiliar terms for a contextual explanation.

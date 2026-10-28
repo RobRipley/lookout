@@ -63,6 +63,13 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
     publishedAt : Int;
     publishedBy : Principal;
   };
+  type ProjectInfoInput = { repository : Text };
+  type ProjectInfo = {
+    projectId : Text;
+    data : ProjectInfoInput;
+    publishedAt : Int;
+    publishedBy : Principal;
+  };
   type PriorityItem = { id : Text; title : Text; status : Text; blockedReason : Text; nextAction : Text; cardIds : [Text] };
   type PriorityInput = { items : [PriorityItem]; sourceRevision : Text };
   type PriorityList = { projectId : Text; data : PriorityInput; publishedAt : Int; publishedBy : Principal };
@@ -90,6 +97,7 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
   var archives : [CardArchive] = [];
   var presentations : [Presentation] = [];
   var plainSummaries : [PlainSummary] = [];
+  var projectInfo : [ProjectInfo] = [];
   var priorities : [PriorityList] = [];
   var inviteDigest : Blob = Sha256.fromBlob(#sha256, inviteSecret.encodeUtf8());
   var inviteAvailable : Bool = true;
@@ -216,6 +224,29 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
     if (payloadCharacters > maxPayloadCharacters) fail("snapshot payload is too large");
   };
 
+  func validRepository(repository : Text) : Bool {
+    if (repository.size() == 0 or repository.size() > 160) return false;
+    var segmentLength = 0;
+    var segmentDots = 0;
+    for (character in repository.toIter()) {
+      let code = character.toNat32();
+      if (code == 47) {
+        if (segmentLength == 0 or (segmentLength <= 2 and segmentDots == segmentLength)) return false;
+        segmentLength := 0;
+        segmentDots := 0;
+      } else {
+        let digit = code >= 48 and code <= 57;
+        let upper = code >= 65 and code <= 90;
+        let lower = code >= 97 and code <= 122;
+        let punctuation = code == 45 or code == 46 or code == 95;
+        if (not digit and not upper and not lower and not punctuation) return false;
+        segmentLength += 1;
+        if (code == 46) segmentDots += 1;
+      };
+    };
+    segmentLength > 0 and not (segmentLength <= 2 and segmentDots == segmentLength)
+  };
+
   func validRevision(revision : Text) : Bool {
     if (revision.size() != 64) return false;
     for (character in revision.toIter()) {
@@ -257,6 +288,9 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
   };
   func visiblePlainSummaryTo(caller : Principal, summary : PlainSummary) : Bool {
     isAdmin(caller) or hasPrincipal(viewers, caller) or isPublisher(caller, summary.projectId)
+  };
+  func visibleProjectInfoTo(caller : Principal, info : ProjectInfo) : Bool {
+    isAdmin(caller) or hasPrincipal(viewers, caller) or isPublisher(caller, info.projectId)
   };
 
   func visiblePriorityTo(caller : Principal, priority : PriorityList) : Bool {
@@ -560,6 +594,11 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
     if (not hasReadAccess(caller)) fail("board read access required");
     plainSummaries.filter(func(summary) { visiblePlainSummaryTo(caller, summary) })
   };
+  public shared query ({ caller }) func listProjectInfo() : async [ProjectInfo] {
+    requireAuthenticated(caller);
+    if (not hasReadAccess(caller)) fail("board read access required");
+    projectInfo.filter(func(info) { visibleProjectInfoTo(caller, info) })
+  };
   public shared query ({ caller }) func listPriorities() : async [PriorityList] {
     requireAuthenticated(caller);
     if (not hasReadAccess(caller)) fail("board read access required");
@@ -608,6 +647,39 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
       case null {
         if (plainSummaries.size() >= maxProjects) fail("plain summary project limit reached");
         plainSummaries := plainSummaries.concat([replacement]);
+      };
+    };
+  };
+
+  public shared ({ caller }) func publishProjectInfo(projectId : Text, input : ProjectInfoInput) : async () {
+    requireAuthenticated(caller);
+    if (not isAdmin(caller) and not isPublisher(caller, projectId)) fail("publisher access required");
+    switch (findSnapshot(projectId)) {
+      case (?_) {};
+      case null fail("board snapshot does not exist");
+    };
+    if (not validRepository(input.repository)) fail("invalid repository slug");
+
+    switch (findProjectInfo(projectId)) {
+      case (?existing) { if (existing.data == input) return };
+      case null {};
+    };
+
+    let replacement : ProjectInfo = {
+      projectId;
+      data = input;
+      publishedAt = Time.now();
+      publishedBy = caller;
+    };
+    switch (projectInfoIndex(projectId)) {
+      case (?index) {
+        projectInfo := Array.tabulate<ProjectInfo>(projectInfo.size(), func(i) {
+          if (i == index) replacement else projectInfo[i]
+        });
+      };
+      case null {
+        if (projectInfo.size() >= maxProjects) fail("project info limit reached");
+        projectInfo := projectInfo.concat([replacement]);
       };
     };
   };
@@ -680,6 +752,22 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
       };
       case null { presentations := presentations.concat([replacement]) };
     };
+  };
+
+  func findProjectInfo(projectId : Text) : ?ProjectInfo {
+    for (info in projectInfo.vals()) {
+      if (info.projectId == projectId) return ?info;
+    };
+    null
+  };
+
+  func projectInfoIndex(projectId : Text) : ?Nat {
+    var index = 0;
+    for (info in projectInfo.vals()) {
+      if (info.projectId == projectId) return ?index;
+      index += 1;
+    };
+    null
   };
 
   func findPlainSummary(projectId : Text) : ?PlainSummary {

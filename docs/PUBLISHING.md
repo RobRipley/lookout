@@ -4,6 +4,10 @@ Give each project a stable ID and a dedicated publisher identity. The workspace 
 
 Copy `examples/publisher.local.json` and its example data into an ignored `.local/` directory. Set the backend, network or environment, identity, project ID, title, lead, and source paths for your own workspace. Paths are resolved relative to the manifest. All example cards are fictional.
 
+Set the optional `repository` field to the canonical repository name or `owner/repository` slug that owns the project shown in the sidebar. This explicit value is recommended. If the source projection lives in a different repository from the project, set `repository` to the originating project repository; the publisher cannot infer that relationship from the projection checkout. Without this field, the publisher tries the source file's Git root and `origin` remote using local read-only Git commands. It normalizes HTTPS and SSH origins to their repository slug, or uses the Git root directory name when no origin exists. It never searches from the publisher's working directory or guesses from project IDs and titles. If it cannot determine a repository, it leaves any existing association unchanged.
+
+Accepted values are a repository name such as `website`, an `owner/website` slug, a hostname-qualified slug, or an HTTPS/SSH Git origin. GitHub origins normalize to `owner/repository`; other hosts retain their lowercase hostname, and nested paths are preserved (for example, `gitlab.com/owner/group/repository`). Do not include local paths or credentials. The association is saved separately from board content, so changing it does not republish the board or reset its freshness timestamp. Regular publishing requires the project board to exist before the association is written. `--priorities-only` does not read or publish repository metadata.
+
 ```sh
 node scripts/publisher.mjs --config .local/publisher.json --dry-run
 node scripts/publisher.mjs --config .local/publisher.json --publish
