@@ -1,5 +1,6 @@
 {
-  "summary": "The website is taking shape. Documentation is finished, search is under way, and the launch date awaits partner confirmation. Keyboard access is the next available task.",
+  "summary": "Keyboard navigation coverage is implemented and the search index is being integrated. Partner confirmation is still pending before a launch date can be set. The next technical step is to finish search integration and validate the keyboard path.",
+  "plainSummary": "The website is progressing, and its documentation and keyboard controls are complete. Search is still being integrated, while the launch date is blocked on partner confirmation. Next, the team will finish search work and follow up on the launch timing.",
   "glossary": [
     {
       "term": "search index",

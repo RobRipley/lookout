@@ -230,6 +230,7 @@ test('presentation Candid encodes optional cardId as opt text or null', () => {
   assert.match(encoded, /cardId = opt "EX-1"/);
   assert.match(encoded, /cardId = null/);
   assert.match(encoded, /sourceRevision = "rev-123"/);
+  assert.doesNotMatch(encoded, /plainSummary/);
 });
 
 test('presentation metadata is strict, bounded, sanitized, and card-bound', async () => {
@@ -251,6 +252,12 @@ test('presentation metadata is strict, bounded, sanitized, and card-bound', asyn
     await assert.rejects(() => run({ summary: 'x', glossary: [], html: '<b>unsafe</b>' }), /non-allowlisted field/);
     await assert.rejects(() => run({ summary: 'x', glossary: [{ term: 'PR', definition: 'Meaning', cardId: 'MISSING' }] }), /unknown card/);
     await assert.rejects(() => run({ summary: '😀'.repeat(601), glossary: [] }), /600 characters/);
+    const plain = await run({ summary: 'Technical overview.', plainSummary: 'The project is moving forward.', glossary: [] });
+    assert.equal(plain.presentation.plainSummary, 'The project is moving forward.');
+    const redacted = await run({ summary: 'Technical overview.', plainSummary: 'Private key: abc', glossary: [] });
+    assert.equal(redacted.presentation.plainSummary, '[redacted secret]');
+    await assert.rejects(() => run({ summary: 'x', plainSummary: 3, glossary: [] }), /plainSummary must be text/);
+    await assert.rejects(() => run({ summary: 'x', plainSummary: '😀'.repeat(601), glossary: [] }), /plainSummary exceeds 600 characters/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -264,6 +271,7 @@ test('curated JSON may carry lead metadata and manifest presentationPath takes p
     const presentationPath = join(dir, 'presentation.json');
     const curated = {
       summary: 'Lead-authored source overview.',
+      plainSummary: 'The work is progressing; review comes next.',
       glossary: [{ term: 'R1', definition: 'A release label.', cardId: 'EX-1' }],
       cards: [{ id: 'EX-1', state: 'In progress', owner: 'Alex', scope: 'A scope', evidenceText: 'A fact.' }],
     };
@@ -273,14 +281,94 @@ test('curated JSON may carry lead metadata and manifest presentationPath takes p
     const icpCall = async () => [];
     const fromSource = await runPublisher({ configPath, logger: { log() {} }, icpCall });
     assert.equal(fromSource.presentation.summary, 'Lead-authored source overview.');
+    assert.equal(fromSource.presentation.plainSummary, 'The work is progressing; review comes next.');
     manifest.presentationPath = presentationPath;
     await writeFile(configPath, JSON.stringify(manifest));
-    await writeFile(presentationPath, JSON.stringify({ summary: 'Manifest override.', glossary: [] }));
+    await writeFile(presentationPath, JSON.stringify({ summary: 'Manifest override.', plainSummary: 'The manifest summary wins.', glossary: [] }));
     const overridden = await runPublisher({ configPath, logger: { log() {} }, icpCall });
     assert.equal(overridden.presentation.summary, 'Manifest override.');
+    assert.equal(overridden.presentation.plainSummary, 'The manifest summary wins.');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('plain summary dry-run, no-op, publish and readback bind the exact source revision', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'lookout-plain-summary-flow-'));
+  try {
+    const sourcePath = join(dir, 'source.md');
+    const configPath = join(dir, 'manifest.json');
+    const presentationPath = join(dir, 'presentation.json');
+    await writeFile(sourcePath, board('| EX-1 | In progress | Alex | Scope | Evidence |'));
+    const manifest = { ...config, canister: 'backend', source: { ...config.source, path: sourcePath }, presentationPath };
+    await writeFile(configPath, JSON.stringify(manifest));
+    await writeFile(presentationPath, JSON.stringify({ summary: 'Engineering detail.', plainSummary: 'The first phase is complete. Review is underway, and the next step is to resolve the remaining review comments.', glossary: [] }));
+    const sourceStat = await stat(sourcePath, { bigint: true });
+    const snapshot = parseMarkdownBoard(await readFile(sourcePath, 'utf8'), manifest, sourceStat.mtimeNs);
+    const currentBoard = { projectId: 'example-project', data: snapshot, revision: 5 };
+    let plainRows = [];
+    const calls = [];
+    const icpCall = async (_config, method, args, options) => {
+      calls.push({ method, args, options });
+      if (method === 'listBoards') return [currentBoard];
+      if (method === 'listPresentations') return [];
+      if (method === 'listPlainSummaries') return plainRows;
+      if (method === 'publishPlainSummary') {
+        assert.match(args, new RegExp(`sourceRevision = "${snapshot.sourceRevision}"`));
+        plainRows = [{ projectId: 'example-project', data: { summary: 'The first phase is complete. Review is underway, and the next step is to resolve the remaining review comments.', sourceRevision: snapshot.sourceRevision }, publishedAt: 123n, publishedBy: 'publisher' }];
+        return { result: 'ok' };
+      }
+      return { result: 'ok' };
+    };
+    const logger = { log() {} };
+    const dry = await runPublisher({ configPath, logger, icpCall });
+    assert.equal(dry.outcome, 'dry-run');
+    assert.equal(dry.plainSummaryNoop, false);
+    assert.ok(calls.every((call) => call.options?.query !== false));
+    assert.ok(!calls.some((call) => call.method === 'publishPlainSummary'));
+    calls.length = 0;
+
+    const published = await runPublisher({ configPath, publish: true, logger, icpCall });
+    assert.equal(published.plainSummaryNoop, false);
+    assert.ok(calls.some((call) => call.method === 'publishPlainSummary'));
+    assert.deepEqual(calls.filter((call) => call.method === 'listPlainSummaries').length, 2, 'read current metadata then verify readback');
+    const write = calls.find((call) => call.method === 'publishPlainSummary');
+    assert.equal(write.options.query, false);
+    assert.match(write.args, new RegExp(`sourceRevision = "${snapshot.sourceRevision}"`));
+
+    calls.length = 0;
+    const unchanged = await runPublisher({ configPath, publish: true, logger, icpCall });
+    assert.equal(unchanged.plainSummaryNoop, true);
+    assert.ok(!calls.some((call) => call.method === 'publishPlainSummary'));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('legacy presentation without plainSummary never reads or clears plain summary metadata', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'lookout-legacy-plain-summary-'));
+  try {
+    const sourcePath = join(dir, 'source.md');
+    const configPath = join(dir, 'manifest.json');
+    const presentationPath = join(dir, 'presentation.json');
+    await writeFile(sourcePath, board('| EX-1 | In progress | Alex | Scope | Evidence |'));
+    await writeFile(presentationPath, JSON.stringify({ summary: 'Technical overview.', glossary: [] }));
+    const manifest = { ...config, canister: 'backend', source: { ...config.source, path: sourcePath }, presentationPath };
+    await writeFile(configPath, JSON.stringify(manifest));
+    const sourceStat = await stat(sourcePath, { bigint: true });
+    const snapshot = parseMarkdownBoard(await readFile(sourcePath, 'utf8'), manifest, sourceStat.mtimeNs);
+    const calls = [];
+    await runPublisher({ configPath, publish: true, logger: { log() {} }, icpCall: async (_config, method) => { calls.push(method); if (method === 'listBoards') return [{ data: snapshot, revision: 1 }]; if (method === 'listPresentations') return []; return {}; } });
+    assert.ok(!calls.includes('listPlainSummaries'));
+    assert.ok(!calls.includes('publishPlainSummary'));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('raw listPlainSummaries JSON response is extracted', () => {
+  const rows = [{ projectId: 'p', data: { summary: 'Plain text.', sourceRevision: 'r' }, publishedAt: 1, publishedBy: 'alice' }];
+  assert.deepEqual(parseIcpJson(JSON.stringify({ result: rows }), 'listPlainSummaries'), rows);
 });
 
 test('presentation dry-run, unchanged skip, and update use current board sourceRevision', async () => {

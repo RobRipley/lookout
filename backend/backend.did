@@ -15,24 +15,32 @@ type Snapshot =
    publishedBy: principal;
    revision: nat;
  };
-type CompletionEntry = record { cardId: text; completedAt: int };
-type CardArchive = record {
-  active: bool;
-  archivedAt: int;
-  archivedBy: principal;
-  card: Card;
-  cardId: text;
-  completedAt: int;
-  manual: bool;
-  projectId: text;
-  restored: bool;
-  sourceRevision: text;
-};
 type Session =
  record {
    canRead: bool;
    isAdmin: bool;
    "principal": principal;
+ };
+type PriorityList =
+ record {
+   data: PriorityInput;
+   projectId: text;
+   publishedAt: int;
+   publishedBy: principal;
+ };
+type PriorityItem =
+ record {
+   blockedReason: text;
+   cardIds: vec text;
+   id: text;
+   nextAction: text;
+   status: text;
+   title: text;
+ };
+type PriorityInput =
+ record {
+   items: vec PriorityItem;
+   sourceRevision: text;
  };
 type PresentationInput =
  record {
@@ -47,9 +55,18 @@ type Presentation =
    publishedAt: int;
    publishedBy: principal;
  };
-type PriorityItem = record { id: text; title: text; status: text; blockedReason: text; nextAction: text; cardIds: vec text };
-type PriorityInput = record { items: vec PriorityItem; sourceRevision: text };
-type PriorityList = record { projectId: text; data: PriorityInput; publishedAt: int; publishedBy: principal };
+type PlainSummaryInput =
+ record {
+   sourceRevision: text;
+   summary: text;
+ };
+type PlainSummary =
+ record {
+   data: PlainSummaryInput;
+   projectId: text;
+   publishedAt: int;
+   publishedBy: principal;
+ };
 type Link =
  record {
    title: text;
@@ -60,6 +77,24 @@ type Definition =
    cardId: opt text;
    definition: text;
    term: text;
+ };
+type CompletionEntry =
+ record {
+   cardId: text;
+   completedAt: int;
+ };
+type CardArchive =
+ record {
+   active: bool;
+   archivedAt: int;
+   archivedBy: principal;
+   card: Card;
+   cardId: text;
+   completedAt: int;
+   manual: bool;
+   projectId: text;
+   restored: bool;
+   sourceRevision: text;
  };
 type Card =
  record {
@@ -76,18 +111,25 @@ type Backend =
    archiveCard: (projectId: text, cardId: text, sourceRevision: text) -> ();
    canManageProject: (projectId: text) -> (bool) query;
    cycleBalance: () -> (nat) query;
-   listArchives: (projectId: text, offset: nat, limit: nat) -> (vec CardArchive) query;
-   listArchiveHistory: (projectId: text, offset: nat, limit: nat) -> (vec CardArchive) query;
+   listArchiveHistory: (projectId: text, offset: nat, limit: nat) ->
+    (vec CardArchive) query;
+   listArchives: (projectId: text, offset: nat, limit: nat) ->
+    (vec CardArchive) query;
    listBoards: () -> (vec Snapshot) query;
-   listCompletionMetadata: (projectId: text, offset: nat, limit: nat) -> (vec CardArchive) query;
+   listCompletionMetadata: (projectId: text, offset: nat, limit: nat) ->
+    (vec CardArchive) query;
+   listPlainSummaries: () -> (vec PlainSummary) query;
    listPresentations: () -> (vec Presentation) query;
    listPriorities: () -> (vec PriorityList) query;
    publish: (input: SnapshotInput, expectedRevision: nat) -> (nat);
-   publishCompletionMetadata: (projectId: text, sourceRevision: text, entries: vec CompletionEntry) -> ();
+   publishCompletionMetadata: (projectId: text, sourceRevision: text,
+    entries: vec CompletionEntry) -> ();
+   publishPlainSummary: (projectId: text, input: PlainSummaryInput) -> ();
    publishPresentation: (projectId: text, input: PresentationInput) -> ();
    publishPriorities: (projectId: text, input: PriorityInput) -> ();
    redeemInvite: (secret: text) -> ();
-   restoreCard: (projectId: text, cardId: text, completedAt: int, sourceRevision: text) -> (Card);
+   restoreCard: (projectId: text, cardId: text, completedAt: int,
+    sourceRevision: text) -> (Card);
    session: () -> (Session) query;
    setAdmin: (admin: principal, enabled: bool) -> ();
    setInvite: (secret: text) -> ();

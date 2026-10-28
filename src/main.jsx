@@ -7,6 +7,7 @@ import { definitionsFor } from './readability';
 import { ExplainedText, TermDialog } from './ExplainedText';
 import { prioritiesForCard } from './priorities';
 import { PriorityPanel } from './PriorityPanel';
+import { ProjectStatus } from './ProjectStatus';
 import { PriorityCardBadge } from './PriorityCardBadge';
 import { boardColumns, cardInColumn } from './boardColumns';
 
@@ -49,6 +50,13 @@ function App() {
   const [session, setSession] = useState(null);
   const [boards, setBoards] = useState([]);
   const [presentations, setPresentations] = useState([]);
+  const [plainSummaries, setPlainSummaries] = useState([]);
+  const [statusMode, setStatusMode] = useState(() => {
+    try { return localStorage.getItem('lookout-status-mode') === 'technical' ? 'technical' : 'plain'; } catch { return 'plain'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('lookout-status-mode', statusMode); } catch { /* The current session choice still applies. */ }
+  }, [statusMode]);
   const [priorities, setPriorities] = useState([]);
   const [archives, setArchives] = useState([]);
   const [managedProjects, setManagedProjects] = useState([]);
@@ -85,21 +93,21 @@ function App() {
       const nextSession = await api.current.session();
       if (epoch !== generation.current) return;
       if (!nextSession.canRead || !auth.isAuthenticated()) {
-        setBoards([]); setPresentations([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(nextSession); setPhase(auth.isAuthenticated() ? 'pending' : 'signedout'); return;
+        setBoards([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(nextSession); setPhase(auth.isAuthenticated() ? 'pending' : 'signedout'); return;
       }
       const actor = api.current;
-      const [next, nextPresentations, nextPriorities] = await Promise.all([actor.listBoards(), actor.listPresentations(), actor.listPriorities()]);
+      const [next, nextPresentations, nextPriorities, nextPlainSummaries] = await Promise.all([actor.listBoards(), actor.listPresentations(), actor.listPriorities(), actor.listPlainSummaries()]);
       const [archivePages, nextManaged] = await Promise.all([
         Promise.all(next.map(b => readAllArchives(actor, b.data.projectId, () => epoch !== generation.current))),
         Promise.all(next.map(async b => [b.data.projectId, await actor.canManageProject(b.data.projectId)])),
       ]);
       const nextArchives = archivePages.flat();
       if (epoch !== generation.current) return;
-      setBoards(next); setPresentations(nextPresentations); setPriorities(nextPriorities); setArchives(nextArchives); setManagedProjects(nextManaged.filter(([, allowed]) => allowed).map(([id]) => id)); setSession(nextSession); setNow(Date.now()); setError('');
+      setBoards(next); setPresentations(nextPresentations); setPlainSummaries(nextPlainSummaries); setPriorities(nextPriorities); setArchives(nextArchives); setManagedProjects(nextManaged.filter(([, allowed]) => allowed).map(([id]) => id)); setSession(nextSession); setNow(Date.now()); setError('');
       setSelected(current => next.some(b => b.data.projectId === current) ? current : next[0]?.data.projectId || null);
     } catch {
       if (epoch === generation.current) {
-        setBoards([]); setPresentations([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setError('Could not refresh your boards. Check your connection or sign in again.');
+        setBoards([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setError('Could not refresh your boards. Check your connection or sign in again.');
       }
     } finally {
       if (inFlight.current === epoch) inFlight.current = null;
@@ -140,7 +148,7 @@ function App() {
     };
     window.addEventListener('hashchange', invitationChanged);
     const unsubscribe = auth.subscribe(() => {
-      if (!auth.isAuthenticated()) { generation.current++; api.current = null; setBoards([]); setPresentations([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(null); setPhase('signedout'); }
+      if (!auth.isAuthenticated()) { generation.current++; api.current = null; setBoards([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(null); setPhase('signedout'); }
     });
     return () => { unsubscribe(); window.removeEventListener('hashchange', invitationChanged); };
   }, [initialize]);
@@ -176,7 +184,7 @@ function App() {
   }, [cardSize]);
 
   async function signIn() { setBusy(true); setError(''); try { await auth.signIn({ maxTimeToLive: 28800000000000n }); await initialize(); } catch { setError('Sign-in was not completed. You can try again.'); } finally { setBusy(false); } }
-  async function signOut() { generation.current++; api.current = null; setBoards([]); setPresentations([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(null); setBalance(null); setPhase('signedout'); sessionStorage.removeItem('lookout-invite'); try { await auth.signOut(); } catch { setError('Local view cleared. Sign-out could not be confirmed; close this tab if you are on a shared device.'); } }
+  async function signOut() { generation.current++; api.current = null; setBoards([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(null); setBalance(null); setPhase('signedout'); sessionStorage.removeItem('lookout-invite'); try { await auth.signOut(); } catch { setError('Local view cleared. Sign-out could not be confirmed; close this tab if you are on a shared device.'); } }
   function select(id) { setTerm(null); setSelected(id); setQuery(''); setBlockedOnly(false); setShowArchives(false); setCard(null); }
   async function archiveTask(task) {
     if (!board || !managedProjects.includes(board.data.projectId) || !isCompleted(task.state)) return;
@@ -198,6 +206,7 @@ function App() {
   }
   const board = boards.find(b => b.data.projectId === selected);
   const presentation = presentations.find(item => item.projectId === selected);
+  const plainSummary = plainSummaries.find(item => item.projectId === selected);
   const presentationCurrent = Boolean(presentation && board && presentation.data.sourceRevision === board.data.sourceRevision);
   const priority = priorities.find(item => item.projectId === selected);
   const glossary = presentationCurrent ? presentation.data.glossary : [];
@@ -241,10 +250,7 @@ function App() {
         <header className="board-header"><div><h1>{board.data.title}</h1><div className="lead"><Avatar name={board.data.lead}/><span>Lead: {board.data.lead}</span><span className="view-label"><Eye size={14}/>Read-only</span></div></div><div className="refresh-area"><span className={stale(board.publishedAt) ? 'stale' : 'muted'} title={`Snapshot published ${date(board.publishedAt)}`}>Published {age(board.publishedAt, now)}</span><button className="outline" onClick={refresh} disabled={busy}><RefreshCw size={17} className={busy ? 'spinning' : ''}/>{busy ? 'Refreshing' : 'Refresh'}</button></div></header>
 
         <div className="status-priorities-grid">
-          <section className="board-summary" aria-label="Project status">
-            <div className="summary-label">Project status{presentation && !presentationCurrent && <span className="summary-earlier">From an earlier board update</span>}</div>
-            <p>{presentation?.data.summary || 'Your lead has not posted a plain-English project summary yet.'}</p>
-          </section>
+          <ProjectStatus board={board} presentation={presentation} plainSummary={plainSummary} mode={statusMode} onModeChange={setStatusMode}/>
           <PriorityPanel priority={priority} board={board}/>
         </div>
         {(stale(board.publishedAt) || stale(board.data.sourceUpdatedAt)) && <div className="stale-banner"><Clock3 size={17}/> {stale(board.publishedAt) ? 'This snapshot is over a day old. Your lead may have newer information.' : 'The source board has not changed in over a day. Recent publishing does not mean recent work.'}</div>}

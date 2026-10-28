@@ -56,6 +56,13 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
     publishedAt : Int;
     publishedBy : Principal;
   };
+  type PlainSummaryInput = { summary : Text; sourceRevision : Text };
+  type PlainSummary = {
+    projectId : Text;
+    data : PlainSummaryInput;
+    publishedAt : Int;
+    publishedBy : Principal;
+  };
   type PriorityItem = { id : Text; title : Text; status : Text; blockedReason : Text; nextAction : Text; cardIds : [Text] };
   type PriorityInput = { items : [PriorityItem]; sourceRevision : Text };
   type PriorityList = { projectId : Text; data : PriorityInput; publishedAt : Int; publishedBy : Principal };
@@ -82,6 +89,7 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
   var snapshots : [Snapshot] = [];
   var archives : [CardArchive] = [];
   var presentations : [Presentation] = [];
+  var plainSummaries : [PlainSummary] = [];
   var priorities : [PriorityList] = [];
   var inviteDigest : Blob = Sha256.fromBlob(#sha256, inviteSecret.encodeUtf8());
   var inviteAvailable : Bool = true;
@@ -247,6 +255,10 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
   func visiblePresentationTo(caller : Principal, presentation : Presentation) : Bool {
     isAdmin(caller) or hasPrincipal(viewers, caller) or isPublisher(caller, presentation.projectId)
   };
+  func visiblePlainSummaryTo(caller : Principal, summary : PlainSummary) : Bool {
+    isAdmin(caller) or hasPrincipal(viewers, caller) or isPublisher(caller, summary.projectId)
+  };
+
   func visiblePriorityTo(caller : Principal, priority : PriorityList) : Bool {
     isAdmin(caller) or hasPrincipal(viewers, caller) or isPublisher(caller, priority.projectId)
   };
@@ -543,6 +555,11 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
     if (not hasReadAccess(caller)) fail("board read access required");
     presentations.filter(func(presentation) { visiblePresentationTo(caller, presentation) })
   };
+  public shared query ({ caller }) func listPlainSummaries() : async [PlainSummary] {
+    requireAuthenticated(caller);
+    if (not hasReadAccess(caller)) fail("board read access required");
+    plainSummaries.filter(func(summary) { visiblePlainSummaryTo(caller, summary) })
+  };
   public shared query ({ caller }) func listPriorities() : async [PriorityList] {
     requireAuthenticated(caller);
     if (not hasReadAccess(caller)) fail("board read access required");
@@ -558,6 +575,40 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
     switch (priorityIndex(projectId)) {
       case (?index) { priorities := Array.tabulate<PriorityList>(priorities.size(), func(i) { if (i == index) replacement else priorities[i] }) };
       case null { priorities := priorities.concat([replacement]) };
+    };
+  };
+
+  public shared ({ caller }) func publishPlainSummary(projectId : Text, input : PlainSummaryInput) : async () {
+    requireAuthenticated(caller);
+    if (not isAdmin(caller) and not isPublisher(caller, projectId)) fail("publisher access required");
+    let current = switch (findSnapshot(projectId)) {
+      case (?snapshot) snapshot;
+      case null fail("board snapshot does not exist");
+    };
+    if (input.summary.size() > 600) fail("plain summary is too long");
+    if (input.sourceRevision != current.data.sourceRevision) fail("plain summary source revision is stale");
+
+    switch (findPlainSummary(projectId)) {
+      case (?existing) { if (existing.data == input) return };
+      case null {};
+    };
+
+    let replacement : PlainSummary = {
+      projectId;
+      data = input;
+      publishedAt = Time.now();
+      publishedBy = caller;
+    };
+    switch (plainSummaryIndex(projectId)) {
+      case (?index) {
+        plainSummaries := Array.tabulate<PlainSummary>(plainSummaries.size(), func(i) {
+          if (i == index) replacement else plainSummaries[i]
+        });
+      };
+      case null {
+        if (plainSummaries.size() >= maxProjects) fail("plain summary project limit reached");
+        plainSummaries := plainSummaries.concat([replacement]);
+      };
     };
   };
 
@@ -629,6 +680,22 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
       };
       case null { presentations := presentations.concat([replacement]) };
     };
+  };
+
+  func findPlainSummary(projectId : Text) : ?PlainSummary {
+    for (summary in plainSummaries.vals()) {
+      if (summary.projectId == projectId) return ?summary;
+    };
+    null
+  };
+
+  func plainSummaryIndex(projectId : Text) : ?Nat {
+    var index = 0;
+    for (summary in plainSummaries.vals()) {
+      if (summary.projectId == projectId) return ?index;
+      index += 1;
+    };
+    null
   };
 
   func presentationIndex(projectId : Text) : ?Nat {

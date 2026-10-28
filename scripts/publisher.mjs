@@ -140,11 +140,17 @@ function codepointLength(value) {
 
 function validatePresentation(raw, snapshot) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Presentation metadata must be a JSON object.');
-  const allowed = ['summary', 'glossary'];
+  const allowed = ['summary', 'glossary', 'plainSummary'];
   if (Object.keys(raw).some((key) => !allowed.includes(key))) throw new Error('Presentation metadata contains a non-allowlisted field.');
   if (typeof raw.summary !== 'string' || !Array.isArray(raw.glossary)) throw new Error('Presentation metadata requires summary text and a glossary array.');
   const summary = safeField(raw.summary);
   if (codepointLength(summary) > 600) throw new Error('Presentation summary exceeds 600 characters.');
+  let plainSummary;
+  if (raw.plainSummary !== undefined) {
+    if (typeof raw.plainSummary !== 'string') throw new Error('Presentation plainSummary must be text when provided.');
+    plainSummary = safeField(raw.plainSummary);
+    if (codepointLength(plainSummary) > 600) throw new Error('Presentation plainSummary exceeds 600 characters.');
+  }
   if (raw.glossary.length > 200) throw new Error('Presentation glossary exceeds 200 definitions.');
   const cardIds = new Set(snapshot.cards.map((card) => card.id));
   const seen = new Set();
@@ -169,7 +175,7 @@ function validatePresentation(raw, snapshot) {
     return { term, definition, cardId };
   });
   if (total > 70000) throw new Error('Presentation metadata exceeds 70000 total characters.');
-  return { summary, glossary, sourceRevision: snapshot.sourceRevision };
+  return { summary, glossary, ...(plainSummary === undefined ? {} : { plainSummary }), sourceRevision: snapshot.sourceRevision };
 }
 
 function parsePresentationFile(text, snapshot) {
@@ -345,8 +351,8 @@ async function loadPresentation(config, absConfig, sourceText, snapshot) {
   }
   if (config.source?.kind === 'curated-json') {
     const curated = JSON.parse(sourceText);
-    if (curated.summary === undefined && curated.glossary === undefined) return null;
-    return validatePresentation({ summary: curated.summary, glossary: curated.glossary }, snapshot);
+    if (curated.summary === undefined && curated.glossary === undefined && curated.plainSummary === undefined) return null;
+    return validatePresentation({ summary: curated.summary, glossary: curated.glossary, ...(curated.plainSummary === undefined ? {} : { plainSummary: curated.plainSummary }) }, snapshot);
   }
   return null;
 }
@@ -454,6 +460,21 @@ function findPresentations(value, seen = new Set()) {
   return null;
 }
 
+function findPlainSummaries(value, seen = new Set()) {
+  if (typeof value === 'string') {
+    try { return findPlainSummaries(JSON.parse(value), seen); } catch { return null; }
+  }
+  if (value == null || typeof value !== 'object' || seen.has(value)) return null;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    if (value.every((item) => item && typeof item === 'object' && 'projectId' in item && 'data' in item && 'publishedAt' in item && 'publishedBy' in item)) return value;
+    for (const item of value) { const found = findPlainSummaries(item, seen); if (found) return found; }
+    return null;
+  }
+  for (const item of Object.values(value)) { const found = findPlainSummaries(item, seen); if (found) return found; }
+  return null;
+}
+
 export function parseIcpJson(stdout, method) {
   let parsed;
   try { parsed = JSON.parse(stdout); } catch (error) { throw new Error(`icp ${method} did not return valid JSON: ${error.message}`); }
@@ -473,12 +494,47 @@ export function parseIcpJson(stdout, method) {
     if (!presentations) throw new Error(`Could not find listPresentations values in icp JSON response: ${JSON.stringify(parsed).slice(0, 500)}`);
     return presentations;
   }
+  if (method === 'listPlainSummaries') {
+    const summaries = findPlainSummaries(parsed);
+    if (!summaries) throw new Error(`Could not find listPlainSummaries values in icp JSON response: ${JSON.stringify(parsed).slice(0, 500)}`);
+    return summaries;
+  }
   if (method === 'listPriorities') {
     const priorities = findPresentations(parsed);
     if (!priorities) throw new Error(`Could not find listPriorities values in icp JSON response: ${JSON.stringify(parsed).slice(0, 500)}`);
     return priorities;
   }
   return parsed;
+}
+
+function plainSummaryCandidText(projectId, input) {
+  return `(${candidText(projectId)}, record { summary = ${candidText(input.plainSummary)}; sourceRevision = ${candidText(input.sourceRevision)} })\n`;
+}
+
+function isPlainSummaryNoop(existing, next) {
+  return Boolean(existing?.data && existing.data.summary === next.plainSummary && existing.data.sourceRevision === next.sourceRevision);
+}
+
+async function publishPlainSummary(config, icpCall, snapshot, presentation, logger) {
+  if (presentation?.plainSummary === undefined) return { plainSummaryNoop: null, plainSummaryResponse: null };
+  const currentList = await icpCall(config, 'listPlainSummaries', '()\n', { query: true });
+  const current = currentList.find((item) => item.projectId === snapshot.projectId) ?? null;
+  const plainSummaryNoop = isPlainSummaryNoop(current, presentation);
+  if (plainSummaryNoop) {
+    logger.log('Plain English summary is unchanged.');
+    return { plainSummaryNoop, plainSummaryResponse: null };
+  }
+  const boards = await icpCall(config, 'listBoards', '()\n', { query: true });
+  const liveBoard = boards.find((item) => item.data?.projectId === snapshot.projectId) ?? null;
+  if (!liveBoard || liveBoard.data.sourceRevision !== snapshot.sourceRevision) {
+    throw new Error(`Board ${snapshot.projectId} changed before plain summary publish; refusing to bind metadata to a stale source revision.`);
+  }
+  const plainSummaryResponse = await icpCall(config, 'publishPlainSummary', plainSummaryCandidText(snapshot.projectId, presentation), { query: false });
+  const afterList = await icpCall(config, 'listPlainSummaries', '()\n', { query: true });
+  const after = afterList.find((item) => item.projectId === snapshot.projectId) ?? null;
+  if (!isPlainSummaryNoop(after, presentation)) throw new Error(`Plain English summary readback for ${snapshot.projectId} did not match the requested metadata.`);
+  logger.log(`Published and verified plain English summary for ${snapshot.projectId} at source revision ${snapshot.sourceRevision}.`);
+  return { plainSummaryNoop: false, plainSummaryResponse };
 }
 
 function normalizedComparable(snapshot) {
@@ -557,11 +613,18 @@ export async function runPublisher({ configPath, publish = false, prioritiesOnly
   logger.log(`${publish ? 'PUBLISH' : 'DRY RUN'} ${snapshot.title}: ${snapshot.cards.length} cards, source revision ${snapshot.sourceRevision}, expected revision ${expectedRevision}${boardNoop ? ' (board unchanged)' : ''}.`);
   if (!publish) {
     let presentationNoop = null;
+    let plainSummaryNoop = null;
     if (presentation) {
       const existingPresentations = await icpCall(config, 'listPresentations', '()\n', { query: true });
       const currentPresentation = existingPresentations.find((item) => item.projectId === snapshot.projectId) ?? null;
       presentationNoop = isPresentationNoop(currentPresentation, presentation);
       logger.log(presentationNoop ? 'Presentation metadata is unchanged.' : 'Presentation metadata would be published with this source revision.');
+      if (presentation.plainSummary !== undefined) {
+        const existingPlainSummaries = await icpCall(config, 'listPlainSummaries', '()\n', { query: true });
+        const currentPlainSummary = existingPlainSummaries.find((item) => item.projectId === snapshot.projectId) ?? null;
+        plainSummaryNoop = isPlainSummaryNoop(currentPlainSummary, presentation);
+        logger.log(plainSummaryNoop ? 'Plain English summary is unchanged.' : 'Plain English summary would be published with this source revision.');
+      }
     }
     let priorityNoop = null;
     if (priorities) {
@@ -572,7 +635,7 @@ export async function runPublisher({ configPath, publish = false, prioritiesOnly
     }
     logger.log('No upload occurred. Re-run with --publish to publish this snapshot.');
     if (completionMetadata?.entries.length) logger.log(completionNoop ? 'Completion metadata is unchanged.' : `Completion metadata would publish ${completionMetadata.entries.length} explicit UTC timestamp${completionMetadata.entries.length === 1 ? '' : 's'}.`);
-    return { outcome: 'dry-run', snapshot, presentation, presentationNoop, priorities, priorityNoop, completionMetadata, completionNoop, expectedRevision: expectedRevision.toString() };
+    return { outcome: 'dry-run', snapshot, presentation, presentationNoop, plainSummaryNoop, priorities, priorityNoop, completionMetadata, completionNoop, expectedRevision: expectedRevision.toString() };
   }
   let boardResponse = null;
   if (boardNoop) {
@@ -602,6 +665,7 @@ export async function runPublisher({ configPath, publish = false, prioritiesOnly
       logger.log(`Published presentation metadata for ${snapshot.projectId} at source revision ${snapshot.sourceRevision}.`);
     }
   }
+  const { plainSummaryNoop, plainSummaryResponse } = await publishPlainSummary(config, icpCall, snapshot, presentation, logger);
   let priorityResponse = null;
   let priorityNoop = null;
   if (priorities) {
@@ -632,11 +696,11 @@ export async function runPublisher({ configPath, publish = false, prioritiesOnly
     if (!isCompletionMetadataNoop(after, completionMetadata, snapshot.projectId)) throw new Error(`Completion metadata readback for ${snapshot.projectId} did not match the requested timestamps.`);
     logger.log(`Published and verified ${completionMetadata.entries.length} explicit completion timestamp${completionMetadata.entries.length === 1 ? '' : 's'} for ${snapshot.projectId}.`);
   }
-  if (boardNoop && (!presentation || presentationNoop) && (!priorities || priorityNoop) && (!completionMetadata?.entries.length || completionNoop)) {
+  if (boardNoop && (!presentation || presentationNoop) && (presentation?.plainSummary === undefined || plainSummaryNoop) && (!priorities || priorityNoop) && (!completionMetadata?.entries.length || completionNoop)) {
     logger.log(`No changes for ${snapshot.projectId}; board and requested presentation are current.`);
-    return { outcome: 'noop', snapshot, presentation, priorities, completionMetadata, completionNoop, expectedRevision: expectedRevision.toString() };
+    return { outcome: 'noop', snapshot, presentation, presentationNoop, plainSummaryNoop, priorities, completionMetadata, completionNoop, expectedRevision: expectedRevision.toString() };
   }
-  return { outcome: 'published', snapshot, presentation, priorities, completionMetadata, expectedRevision: expectedRevision.toString(), boardResponse, presentationResponse, presentationNoop, priorityResponse, priorityNoop, completionResponse, completionNoop };
+  return { outcome: 'published', snapshot, presentation, priorities, completionMetadata, expectedRevision: expectedRevision.toString(), boardResponse, presentationResponse, presentationNoop, plainSummaryNoop, plainSummaryResponse, priorityResponse, priorityNoop, completionResponse, completionNoop };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {

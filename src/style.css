@@ -92,3 +92,5 @@
 /* Dialogs must appear above the immersive board and toolbar. */
 .full-board-view .drawer-backdrop{z-index:60}
 .full-board-view .term-backdrop{z-index:70}
+
+.status-summary-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.status-mode-control{display:inline-flex;padding:2px;background:#edf0f6;border:1px solid #dce2ec;border-radius:6px;gap:2px;flex-shrink:0}.status-mode-control button{font:inherit;font-size:10px;font-weight:600;padding:4px 8px;border:0;border-radius:4px;background:transparent;color:#67758a;cursor:pointer;line-height:1.2}.status-mode-control button[aria-pressed="true"]{background:#fff;color:#384480;box-shadow:0 1px 3px #14233720}.status-mode-control button:focus-visible{outline:2px solid #727dd8;outline-offset:2px}.board-summary>.summary-earlier{margin-top:5px}[data-theme="dark"] .status-mode-control{background:#111b2a;border-color:#31425c}[data-theme="dark"] .status-mode-control button{color:#a9b8ce}[data-theme="dark"] .status-mode-control button[aria-pressed="true"]{background:#344365;color:#edf0ff}

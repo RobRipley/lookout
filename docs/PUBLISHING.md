@@ -30,7 +30,11 @@ The publisher never reads other sections as tasks. Configured columns must inclu
 
 ## Summary, definitions, and priorities
 
-`presentationPath` points to `{ "summary": "...", "glossary": [...] }`. Keep the summary under 600 characters, in plain English, and describe overall progress and the next obstacle. Glossary entries have `term`, `definition`, and optional `cardId` for a card-specific meaning. Explain local identifiers from actual project knowledge rather than guessing.
+`presentationPath` points to `{ "summary": "...", "plainSummary": "...", "glossary": [...] }`. The standard `summary` is the technical overview used by the project presentation. Keep it under 600 characters and describe overall progress and the next obstacle. Glossary entries have `term`, `definition`, and optional `cardId` for a card-specific meaning. Explain local identifiers from actual project knowledge rather than guessing.
+
+`plainSummary` is optional and is published separately from the technical overview. Write 2–3 brief sentences for a general reader: state overall progress, what is done, what is blocked, and what happens next. Keep it under 600 Unicode codepoints. Explain acronyms and avoid unexplained hashes. Report only what has been verified; a completed software task does not imply deployment, signing, funds movement, or readiness. When the meaningful project status changes, update both summaries. The plain summary is the default view; readers can switch to the technical details. If `plainSummary` is omitted, the publisher leaves any existing plain summary untouched.
+
+For `curated-json` sources, top-level `plainSummary` can be included beside `summary` and `glossary`. A configured `presentationPath` takes precedence over inline metadata, including the plain summary.
 
 `priorityPath` points to `{ "items": [...] }`. Array order is priority order. Every item has `id`, `title`, `status`, `blockedReason`, `nextAction`, and `cardIds`. Allowed statuses are `ready`, `in_progress`, `blocked`, `paused`, and `done`. Linked IDs must exist in the current source board. The first actionable item is shown as the next focus. Card badges reflect their linked priority rank.
 

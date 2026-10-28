@@ -9,6 +9,8 @@ export const idlFactory = () => {
   const Definition = IDL.Record({ term: IDL.Text, definition: IDL.Text, cardId: IDL.Opt(IDL.Text) });
   const PresentationInput = IDL.Record({ summary: IDL.Text, glossary: IDL.Vec(Definition), sourceRevision: IDL.Text });
   const Presentation = IDL.Record({ projectId: IDL.Text, data: PresentationInput, publishedAt: IDL.Int, publishedBy: IDL.Principal });
+  const PlainSummaryInput = IDL.Record({ summary: IDL.Text, sourceRevision: IDL.Text });
+  const PlainSummary = IDL.Record({ projectId: IDL.Text, data: PlainSummaryInput, publishedAt: IDL.Int, publishedBy: IDL.Principal });
   const PriorityItem = IDL.Record({ id: IDL.Text, title: IDL.Text, status: IDL.Text, blockedReason: IDL.Text, nextAction: IDL.Text, cardIds: IDL.Vec(IDL.Text) });
   const PriorityInput = IDL.Record({ items: IDL.Vec(PriorityItem), sourceRevision: IDL.Text });
   const PriorityList = IDL.Record({ projectId: IDL.Text, data: PriorityInput, publishedAt: IDL.Int, publishedBy: IDL.Principal });
@@ -22,6 +24,8 @@ export const idlFactory = () => {
     restoreCard: IDL.Func([IDL.Text, IDL.Text, IDL.Int, IDL.Text], [Card], []),
     listPresentations: IDL.Func([], [IDL.Vec(Presentation)], ['query']),
     publishPresentation: IDL.Func([IDL.Text, PresentationInput], [], []),
+    listPlainSummaries: IDL.Func([], [IDL.Vec(PlainSummary)], ['query']),
+    publishPlainSummary: IDL.Func([IDL.Text, PlainSummaryInput], [], []),
     listPriorities: IDL.Func([], [IDL.Vec(PriorityList)], ['query']),
     publishPriorities: IDL.Func([IDL.Text, PriorityInput], [], []),
     session: IDL.Func([], [IDL.Record({ principal: IDL.Principal, canRead: IDL.Bool, isAdmin: IDL.Bool })], ['query']),
