@@ -249,6 +249,46 @@ test('repository association dry-run, no-op, update, and readback do not republi
   }
 });
 
+test('inferred repository never replaces an existing association without an explicit manifest value', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'lookout-preserve-project-info-'));
+  try {
+    const sourcePath = join(dir, 'source.md');
+    const configPath = join(dir, 'manifest.json');
+    await writeFile(sourcePath, board('| EX-1 | In progress | Alex | Scope | Evidence |'));
+    const initialized = spawnSync('git', ['-C', dir, 'init'], { encoding: 'utf8' });
+    assert.equal(initialized.status, 0, initialized.stderr);
+    const remote = spawnSync('git', ['-C', dir, 'remote', 'add', 'origin', 'https://github.com/inferred-owner/source-projection.git'], { encoding: 'utf8' });
+    assert.equal(remote.status, 0, remote.stderr);
+    const manifest = { ...config, canister: 'backend', source: { ...config.source, path: sourcePath } };
+    await writeFile(configPath, JSON.stringify(manifest));
+    const sourceStat = await stat(sourcePath, { bigint: true });
+    const snapshot = parseMarkdownBoard(await readFile(sourcePath, 'utf8'), manifest, sourceStat.mtimeNs);
+    const existingAssociation = { projectId: 'example-project', data: { repository: 'actual-owner/source-project' }, publishedAt: 1n, publishedBy: 'publisher' };
+    const calls = [];
+    const icpCall = async (_config, method, _args, options) => {
+      calls.push({ method, options });
+      if (method === 'listBoards') return [{ data: snapshot, revision: 3 }];
+      if (method === 'listProjectInfo') return [existingAssociation];
+      throw new Error(`unexpected method ${method}`);
+    };
+
+    const dry = await runPublisher({ configPath, logger: { log() {} }, icpCall });
+    assert.equal(dry.repository, 'actual-owner/source-project');
+    assert.equal(dry.repositoryNoop, true);
+    assert.ok(!calls.some((call) => call.options?.query === false));
+    calls.length = 0;
+
+    const published = await runPublisher({ configPath, publish: true, logger: { log() {} }, icpCall });
+    assert.equal(published.outcome, 'noop');
+    assert.equal(published.repository, 'actual-owner/source-project');
+    assert.equal(published.repositoryNoop, true);
+    assert.ok(!calls.some((call) => call.method === 'publishProjectInfo'));
+    assert.ok(!calls.some((call) => call.method === 'publish'));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('new board is published before repository association and association readback is verified', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'lookout-new-project-info-'));
   try {

@@ -610,14 +610,22 @@ function isProjectInfoNoop(existing, repository) {
   return existing?.data?.repository === repository;
 }
 
-async function publishProjectInfo(config, icpCall, projectId, repository, logger) {
+async function publishProjectInfo(config, icpCall, projectId, repository, repositoryExplicit, logger) {
   if (!repository) return { repositoryNoop: null, projectInfoResponse: null };
   const currentList = await icpCall(config, 'listProjectInfo', '()\n', { query: true });
   const current = currentList.find((item) => item.projectId === projectId) ?? null;
+  if (!repositoryExplicit && current?.data?.repository) {
+    if (current.data.repository !== repository) {
+      logger.log(`Keeping existing repository association ${current.data.repository}; source-path inference returned ${repository}.`);
+    } else {
+      logger.log(`Repository association for ${projectId} is unchanged.`);
+    }
+    return { repositoryNoop: true, repository: current.data.repository, projectInfoResponse: null };
+  }
   const repositoryNoop = isProjectInfoNoop(current, repository);
   if (repositoryNoop) {
     logger.log(`Repository association for ${projectId} is unchanged.`);
-    return { repositoryNoop, projectInfoResponse: null };
+    return { repositoryNoop, repository, projectInfoResponse: null };
   }
   const boards = await icpCall(config, 'listBoards', '()\n', { query: true });
   if (!boards.some((item) => item.data?.projectId === projectId)) {
@@ -628,7 +636,7 @@ async function publishProjectInfo(config, icpCall, projectId, repository, logger
   const after = afterList.find((item) => item.projectId === projectId) ?? null;
   if (!isProjectInfoNoop(after, repository)) throw new Error(`Repository association readback for ${projectId} did not match ${repository}.`);
   logger.log(`Published and verified repository association ${repository} for ${projectId}.`);
-  return { repositoryNoop: false, projectInfoResponse };
+  return { repositoryNoop: false, repository, projectInfoResponse };
 }
 
 function plainSummaryCandidText(projectId, input) {
@@ -722,7 +730,8 @@ export async function runPublisher({ configPath, publish = false, prioritiesOnly
   const sourcePath = resolve(config.source.path);
   const [source, sourceStat] = await Promise.all([readFile(sourcePath, 'utf8'), stat(sourcePath, { bigint: true })]);
   const snapshot = parseMarkdownBoard(source, config, sourceStat.mtimeNs);
-  const repository = await resolveRepository(config, sourcePath);
+  const repositoryExplicit = Object.prototype.hasOwnProperty.call(config, 'repository');
+  let repository = await resolveRepository(config, sourcePath);
   const presentation = await loadPresentation(config, absConfig, source, snapshot);
   const priorities = await loadPriorities(config, absConfig, snapshot);
   const completionMetadata = await loadCompletionMetadata(config, absConfig, snapshot);
@@ -762,8 +771,17 @@ export async function runPublisher({ configPath, publish = false, prioritiesOnly
     if (repository) {
       const existingProjectInfo = await icpCall(config, 'listProjectInfo', '()\n', { query: true });
       const currentProjectInfo = existingProjectInfo.find((item) => item.projectId === snapshot.projectId) ?? null;
-      repositoryNoop = isProjectInfoNoop(currentProjectInfo, repository);
-      logger.log(repositoryNoop ? 'Repository association is unchanged.' : `Repository association would be published as ${repository}.`);
+      if (!repositoryExplicit && currentProjectInfo?.data?.repository) {
+        const inferred = repository;
+        repository = currentProjectInfo.data.repository;
+        repositoryNoop = true;
+        logger.log(inferred === repository
+          ? 'Repository association is unchanged.'
+          : `Keeping existing repository association ${repository}; source-path inference returned ${inferred}.`);
+      } else {
+        repositoryNoop = isProjectInfoNoop(currentProjectInfo, repository);
+        logger.log(repositoryNoop ? 'Repository association is unchanged.' : `Repository association would be published as ${repository}.`);
+      }
     }
     logger.log('No upload occurred. Re-run with --publish to publish this snapshot.');
     if (completionMetadata?.entries.length) logger.log(completionNoop ? 'Completion metadata is unchanged.' : `Completion metadata would publish ${completionMetadata.entries.length} explicit UTC timestamp${completionMetadata.entries.length === 1 ? '' : 's'}.`);
@@ -798,7 +816,8 @@ export async function runPublisher({ configPath, publish = false, prioritiesOnly
     }
   }
   const { plainSummaryNoop, plainSummaryResponse } = await publishPlainSummary(config, icpCall, snapshot, presentation, logger);
-  const { repositoryNoop, projectInfoResponse } = await publishProjectInfo(config, icpCall, snapshot.projectId, repository, logger);
+  const { repositoryNoop, repository: effectiveRepository, projectInfoResponse } = await publishProjectInfo(config, icpCall, snapshot.projectId, repository, repositoryExplicit, logger);
+  if (effectiveRepository !== undefined) repository = effectiveRepository;
   let priorityResponse = null;
   let priorityNoop = null;
   if (priorities) {
