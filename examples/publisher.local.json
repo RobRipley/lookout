@@ -1,0 +1,23 @@
+{
+  "projectId": "example-project",
+  "title": "Website launch",
+  "lead": "Alex",
+  "canister": "backend",
+  "environment": "local",
+  "identity": "lookout-example",
+  "source": {
+    "kind": "curated-json",
+    "path": "board.json"
+  },
+  "columns": [
+    "Backlog",
+    "Ready",
+    "In progress",
+    "Review",
+    "Done",
+    "Blocked"
+  ],
+  "presentationPath": "presentation.json",
+  "priorityPath": "priorities.json",
+  "completionPath": "completions.json"
+}

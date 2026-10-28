@@ -1,0 +1,46 @@
+{
+  "cards": [
+    {
+      "id": "EX-1",
+      "state": "In progress",
+      "owner": "Alex",
+      "scope": "Build site search",
+      "evidenceText": "The first search index is ready. Next: test relevant results."
+    },
+    {
+      "id": "EX-2",
+      "state": "Done",
+      "owner": "Casey",
+      "scope": "Write the getting-started guide",
+      "evidenceText": "The guide has been reviewed with a new user."
+    },
+    {
+      "id": "EX-3",
+      "state": "Blocked",
+      "owner": "Jordan",
+      "scope": "Confirm the launch date",
+      "evidenceText": "Waiting for partner confirmation. Recheck at the next checkpoint."
+    },
+    {
+      "id": "EX-4",
+      "state": "Ready",
+      "owner": "Casey",
+      "scope": "Add keyboard navigation",
+      "evidenceText": "Design is ready. Implement focus order and verify keyboard access."
+    },
+    {
+      "id": "EX-5",
+      "state": "Review",
+      "owner": "Alex",
+      "scope": "Review the homepage copy",
+      "evidenceText": "Draft is complete and awaiting editorial review."
+    },
+    {
+      "id": "EX-6",
+      "state": "Backlog",
+      "owner": "Jordan",
+      "scope": "Plan the next release",
+      "evidenceText": "Collect feedback after the launch."
+    }
+  ]
+}

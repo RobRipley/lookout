@@ -1,0 +1,14 @@
+{
+  "summary": "The website is taking shape. Documentation is finished, search is under way, and the launch date awaits partner confirmation. Keyboard access is the next available task.",
+  "glossary": [
+    {
+      "term": "search index",
+      "definition": "A prepared list of pages and words that makes finding relevant results faster.",
+      "cardId": "EX-1"
+    },
+    {
+      "term": "focus order",
+      "definition": "The sequence of controls you reach by pressing the Tab key."
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.icp/
+.mops/
+.local/
+work/
+outputs/
+.env*
+!.env.example
+*.pem
+*.key
+*.bundle
+.DS_Store
+scripts/*.mainnet.json
+scripts/*.local.json
+/tests/backend-plan.md

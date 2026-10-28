@@ -1,0 +1,36 @@
+{
+  "items": [
+    {
+      "id": "launch",
+      "title": "Launch coordination",
+      "status": "blocked",
+      "blockedReason": "Waiting for partner confirmation.",
+      "nextAction": "Recheck the launch date at the next checkpoint.",
+      "cardIds": [
+        "EX-3",
+        "EX-5"
+      ]
+    },
+    {
+      "id": "discovery",
+      "title": "Search and navigation",
+      "status": "in_progress",
+      "blockedReason": "",
+      "nextAction": "Test search quality, then add keyboard navigation.",
+      "cardIds": [
+        "EX-1",
+        "EX-4"
+      ]
+    },
+    {
+      "id": "docs",
+      "title": "Documentation",
+      "status": "done",
+      "blockedReason": "",
+      "nextAction": "Collect reader feedback after launch.",
+      "cardIds": [
+        "EX-2"
+      ]
+    }
+  ]
+}

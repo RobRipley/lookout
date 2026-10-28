@@ -1,0 +1,97 @@
+type SnapshotInput =
+ record {
+   cards: vec Card;
+   columns: vec text;
+   lead: text;
+   projectId: text;
+   sourceRevision: text;
+   sourceUpdatedAt: int;
+   title: text;
+ };
+type Snapshot =
+ record {
+   data: SnapshotInput;
+   publishedAt: int;
+   publishedBy: principal;
+   revision: nat;
+ };
+type CompletionEntry = record { cardId: text; completedAt: int };
+type CardArchive = record {
+  active: bool;
+  archivedAt: int;
+  archivedBy: principal;
+  card: Card;
+  cardId: text;
+  completedAt: int;
+  manual: bool;
+  projectId: text;
+  restored: bool;
+  sourceRevision: text;
+};
+type Session =
+ record {
+   canRead: bool;
+   isAdmin: bool;
+   "principal": principal;
+ };
+type PresentationInput =
+ record {
+   glossary: vec Definition;
+   sourceRevision: text;
+   summary: text;
+ };
+type Presentation =
+ record {
+   data: PresentationInput;
+   projectId: text;
+   publishedAt: int;
+   publishedBy: principal;
+ };
+type PriorityItem = record { id: text; title: text; status: text; blockedReason: text; nextAction: text; cardIds: vec text };
+type PriorityInput = record { items: vec PriorityItem; sourceRevision: text };
+type PriorityList = record { projectId: text; data: PriorityInput; publishedAt: int; publishedBy: principal };
+type Link =
+ record {
+   title: text;
+   url: text;
+ };
+type Definition =
+ record {
+   cardId: opt text;
+   definition: text;
+   term: text;
+ };
+type Card =
+ record {
+   blocked: bool;
+   description: text;
+   evidence: vec Link;
+   id: text;
+   owner: text;
+   state: text;
+   title: text;
+ };
+type Backend =
+ service {
+   archiveCard: (projectId: text, cardId: text, sourceRevision: text) -> ();
+   canManageProject: (projectId: text) -> (bool) query;
+   cycleBalance: () -> (nat) query;
+   listArchives: (projectId: text, offset: nat, limit: nat) -> (vec CardArchive) query;
+   listArchiveHistory: (projectId: text, offset: nat, limit: nat) -> (vec CardArchive) query;
+   listBoards: () -> (vec Snapshot) query;
+   listCompletionMetadata: (projectId: text, offset: nat, limit: nat) -> (vec CardArchive) query;
+   listPresentations: () -> (vec Presentation) query;
+   listPriorities: () -> (vec PriorityList) query;
+   publish: (input: SnapshotInput, expectedRevision: nat) -> (nat);
+   publishCompletionMetadata: (projectId: text, sourceRevision: text, entries: vec CompletionEntry) -> ();
+   publishPresentation: (projectId: text, input: PresentationInput) -> ();
+   publishPriorities: (projectId: text, input: PriorityInput) -> ();
+   redeemInvite: (secret: text) -> ();
+   restoreCard: (projectId: text, cardId: text, completedAt: int, sourceRevision: text) -> (Card);
+   session: () -> (Session) query;
+   setAdmin: (admin: principal, enabled: bool) -> ();
+   setInvite: (secret: text) -> ();
+   setPublisher: (projectId: text, publisher: principal, enabled: bool) -> ();
+   setViewer: (viewer: principal, enabled: bool) -> ();
+ };
+service : (recoveryAdmin: principal, inviteSecret: text) -> Backend
