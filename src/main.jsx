@@ -185,7 +185,7 @@ function App() {
     try { localStorage.setItem('lookout-card-size', cardSize); } catch { /* The current session choice still applies. */ }
   }, [cardSize]);
 
-  async function signIn() { setBusy(true); setError(''); try { await auth.signIn({ maxTimeToLive: 28800000000000n }); await initialize(); } catch { setError('Sign-in was not completed. You can try again.'); } finally { setBusy(false); } }
+  async function signIn() { setBusy(true); setError(''); try { await auth.signIn({ maxTimeToLive: 30n * 24n * 60n * 60n * 1_000_000_000n, maxTimeToIdle: 30n * 24n * 60n * 60n * 1_000_000_000n }); await initialize(); } catch { setError('Sign-in was not completed. You can try again.'); } finally { setBusy(false); } }
   async function signOut() { generation.current++; api.current = null; setBoards([]); setProjectInfo([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(null); setBalance(null); setPhase('signedout'); sessionStorage.removeItem('lookout-invite'); try { await auth.signOut(); } catch { setError('Local view cleared. Sign-out could not be confirmed; close this tab if you are on a shared device.'); } }
   function select(id) { setTerm(null); setSelected(id); setQuery(''); setBlockedOnly(false); setShowArchives(false); setCard(null); }
   async function archiveTask(task) {
@@ -238,6 +238,7 @@ function App() {
         <button className="text-button" onClick={signOut}>Use another identity</button>
       </> : <button className="primary" disabled={busy} onClick={signIn}>{busy ? 'Connecting…' : 'Sign in with Internet Identity'}<ArrowRight size={18}/></button>}
       <div className="entry-note"><LockKeyhole size={14}/> Invite-only · Hosted on ICP</div>
+      {phase === 'signedout' && <div className="entry-note">Stay signed in for up to 30 days on this browser.</div>}
     </section><div className="entry-bottom">A window into your projects. Updated by your leads.</div>
   </main>;
   return <div className={`app${fullBoard ? ' full-board-view' : ''}${fullBoard && cardSize === 'compact' ? ' compact-cards' : ''}`}>
