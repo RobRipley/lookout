@@ -1,0 +1,13 @@
+# Lookout
+
+> Private project boards, readable summaries, ranked priorities, and agent progress on ICP. Existing source boards stay authoritative.
+
+## Deploy and use your own instance
+
+- [Agent setup guide](https://raw.githubusercontent.com/RobRipley/lookout/main/docs/AGENT_SETUP.md): Start here for deployment, owner login, project-scoped agent setup, validation, and upkeep.
+- [Supervisor and subproject orchestration](https://raw.githubusercontent.com/RobRipley/lookout/main/docs/ORCHESTRATION.md): Supervisor accountability, orchestrator task queues, cost-aware resource allocation, and priorities that guide rather than exclusively lock execution.
+- [Setup and recovery](https://raw.githubusercontent.com/RobRipley/lookout/main/docs/SETUP.md): Ownership, deployment, upgrades, access, and backups.
+- [Publishing reference](https://raw.githubusercontent.com/RobRipley/lookout/main/docs/PUBLISHING.md): Board schemas, summaries, priorities, completion dates, and synchronization.
+- [Source and license](https://github.com/RobRipley/lookout): FSL-1.1-ALv2 source-available code, fictional examples, and pinned toolchain.
+
+Each operator supplies their own deployment identities, private workspace, and cycles. No access to the author's workspace is included.

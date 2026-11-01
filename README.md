@@ -31,6 +31,16 @@ React and Vite serve the interface from an ICP asset canister. A Motoko canister
 
 There is no separate database or application server to operate. Canister execution and storage consume cycles. This repository contains application source and synthetic examples; it contains no production boards, invitations, identity keys, or deployment configuration.
 
+## Give this to your agent
+
+Want your own copy? Give your coding agent the [deployment and usage guide](docs/AGENT_SETUP.md):
+
+```text
+Deploy my own private Lookout instance and connect my project agents. Follow https://raw.githubusercontent.com/RobRipley/lookout/main/docs/AGENT_SETUP.md
+```
+
+You supply your own canisters and cycles. The guide covers deployment, first-owner login, project-scoped agent access, and ongoing board updates.
+
 ## Run your own instance
 
 Prerequisites: Node.js 22.12+ and npm, [icp-cli](https://github.com/dfinity/icp-cli), and [Mops](https://docs.mops.one/). The Motoko toolchain and libraries are pinned in `mops.toml`.
@@ -59,7 +69,7 @@ For browser login, deployment, recovery, and configuration, see [Setup](docs/SET
 
 ## Priority-driven supervision
 
-The priority list is a ranking of sub-projects, separate from card status. Work on the highest-ranked actionable item. If it becomes blocked, record the blocker and next step, then move to the next actionable item. Recheck the blocked item and return to it when it becomes actionable. Priorities guide attention; they do not grant permission for deployments, transactions, or other protected actions.
+The supervisor owns the project board, sub-project priorities, and allocation of effort. Sub-project orchestrators populate and maintain task queues and coordinate their workers. The highest actionable priority is the default focus, while independent lower-priority work may proceed when its value, cost, and shared-resource needs justify it. Move useful effort elsewhere when blocked and restore attention at a sensible checkpoint when unblocked. There is no universal concurrency count, and priorities do not grant deployment or financial authority. See the [supervisor and sub-project orchestration standard](docs/ORCHESTRATION.md).
 
 Publish whenever a task's state, blocker, owner, next action, or priority changes. This is an explicit publisher integration, not automatic discovery of every agent or project.
 
