@@ -33,10 +33,10 @@ There is no separate database or application server to operate. Canister executi
 
 ## Give this to your agent
 
-Want your own copy? Give your coding agent the [deployment and usage guide](docs/AGENT_SETUP.md):
+Want your own copy? Give your coding agent the [agent entry point](AGENTS.md):
 
 ```text
-Deploy my own private Lookout instance and connect my project agents. Follow https://raw.githubusercontent.com/RobRipley/lookout/main/docs/AGENT_SETUP.md
+Deploy my own private Lookout instance and connect my project agents. Follow https://raw.githubusercontent.com/RobRipley/lookout/main/AGENTS.md
 ```
 
 You supply your own canisters and cycles. The guide covers deployment, first-owner login, project-scoped agent access, and ongoing board updates.

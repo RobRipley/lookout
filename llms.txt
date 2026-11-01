@@ -4,6 +4,7 @@
 
 ## Deploy and use your own instance
 
+- [AGENTS.md](https://raw.githubusercontent.com/RobRipley/lookout/main/AGENTS.md): Entry point routing deployment, publishing, team supervision, and repository development to the appropriate instructions.
 - [Agent setup guide](https://raw.githubusercontent.com/RobRipley/lookout/main/docs/AGENT_SETUP.md): Start here for deployment, owner login, project-scoped agent setup, validation, and upkeep.
 - [Supervisor and subproject orchestration](https://raw.githubusercontent.com/RobRipley/lookout/main/docs/ORCHESTRATION.md): Supervisor accountability, orchestrator task queues, cost-aware resource allocation, and priorities that guide rather than exclusively lock execution.
 - [Setup and recovery](https://raw.githubusercontent.com/RobRipley/lookout/main/docs/SETUP.md): Ownership, deployment, upgrades, access, and backups.
