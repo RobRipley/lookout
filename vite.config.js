@@ -14,7 +14,7 @@ export default defineConfig(({ command }) => {
       const backend = Principal.fromText(process.env.LOOKOUT_DISCOVERY_BACKEND_ID || '').toText();
       if (frontend === '2vxsx-fae' || backend === '2vxsx-fae' || frontend === backend) throw new Error('Two distinct canister principals required');
       this.emitFile({type:'asset', fileName:'.well-known/ic-architecture', source:JSON.stringify({version:'1.0.0',canisters:[{id:frontend,name:'frontend',role:'the frontend'},{id:backend,name:'backend',role:'the backend'}]},null,2)+'\n'});
-      this.emitFile({type:'asset', fileName:'.well-known/ii-derivation-origin', source:`https://${frontend}.ic0.app\n`});
+      this.emitFile({type:'asset', fileName:'.well-known/ii-derivation-origin', source:`https://${frontend}.icp0.io\n`});
     }}] : []), ...(visualTest ? [{ name: 'local-visual-test', configureServer(server) {
       server.middlewares.use((_request, response, next) => {
         response.setHeader('Set-Cookie', `ic_env=${encodeURIComponent(`ic_root_key=${testConfig.rootKey}&PUBLIC_CANISTER_ID:backend=${testConfig.backend}`)}; Path=/; SameSite=Lax`);
