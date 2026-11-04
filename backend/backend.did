@@ -29,6 +29,29 @@ type ProjectInfo =
    publishedAt: int;
    publishedBy: principal;
  };
+type ProductPriorityItem =
+ record {
+   blockedReason: text;
+   nextAction: text;
+   projectId: text;
+   status: text;
+ };
+type ProductInput =
+ record {
+   cto: text;
+   projectIds: vec text;
+   summary: text;
+   title: text;
+ };
+type Product =
+ record {
+   data: ProductInput;
+   id: text;
+   items: vec ProductPriorityItem;
+   revision: nat;
+   updatedAt: int;
+   updatedBy: principal;
+ };
 type PriorityList =
  record {
    data: PriorityInput;
@@ -117,6 +140,7 @@ type Card =
 type Backend =
  service {
    archiveCard: (projectId: text, cardId: text, sourceRevision: text) -> ();
+   canManageProduct: (id: text) -> (bool) query;
    canManageProject: (projectId: text) -> (bool) query;
    cycleBalance: () -> (nat) query;
    listArchiveHistory: (projectId: text, offset: nat, limit: nat) ->
@@ -129,6 +153,7 @@ type Backend =
    listPlainSummaries: () -> (vec PlainSummary) query;
    listPresentations: () -> (vec Presentation) query;
    listPriorities: () -> (vec PriorityList) query;
+   listProducts: () -> (vec Product) query;
    listProjectInfo: () -> (vec ProjectInfo) query;
    publish: (input: SnapshotInput, expectedRevision: nat) -> (nat);
    publishCompletionMetadata: (projectId: text, sourceRevision: text,
@@ -136,6 +161,10 @@ type Backend =
    publishPlainSummary: (projectId: text, input: PlainSummaryInput) -> ();
    publishPresentation: (projectId: text, input: PresentationInput) -> ();
    publishPriorities: (projectId: text, input: PriorityInput) -> ();
+   publishProductOverview: (id: text, summary: text, expectedRevision:
+    nat) -> (nat);
+   publishProductPriorities: (id: text, items: vec ProductPriorityItem,
+    expectedRevision: nat) -> (nat);
    publishProjectInfo: (projectId: text, input: ProjectInfoInput) -> ();
    redeemInvite: (secret: text) -> ();
    restoreCard: (projectId: text, cardId: text, completedAt: int,
@@ -143,7 +172,10 @@ type Backend =
    session: () -> (Session) query;
    setAdmin: (admin: principal, enabled: bool) -> ();
    setInvite: (secret: text) -> ();
+   setProductManager: (id: text, manager: principal, enabled: bool) -> ();
    setPublisher: (projectId: text, publisher: principal, enabled: bool) -> ();
    setViewer: (viewer: principal, enabled: bool) -> ();
+   upsertProduct: (id: text, input: ProductInput, expectedRevision: nat) ->
+    (nat);
  };
 service : (recoveryAdmin: principal, inviteSecret: text) -> Backend

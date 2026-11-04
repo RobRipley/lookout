@@ -6,6 +6,7 @@ Lookout is a private, read-only mirror of the project boards agents already use.
 
 - **Deploy the user's own copy:** follow [Agent setup](docs/AGENT_SETUP.md). It covers prerequisites, the user's own identities and cycles, deployment, first-owner login, project-scoped publisher access, and verified upkeep.
 - **Connect or maintain a project:** follow [Publishing](docs/PUBLISHING.md). Reuse the established source board, manifest, identity, and publishing owner. Update after material movement and verify readback.
+- **Manage products and CTO priorities:** follow [Products](docs/PRODUCTS.md). Use explicit membership, separate product manager grants, and product revisions; preserve the established project publisher and source board.
 - **Supervise a team:** follow [Supervisor and subproject orchestration](docs/ORCHESTRATION.md) and activate available team-orchestration and board skills. The supervisor is accountable for the board, priorities, and resource allocation; subproject orchestrators populate and maintain task queues. Priority guides allocation, not an exclusive rank-1 execution lock. Choose concurrency by useful work, cost, dependencies, and shared resources, without an arbitrary task-count cap.
 - **Develop Lookout itself:** inspect repository state, preserve unrelated work, and use the implementation notes below. Cloning or editing the repository does not itself request deployment, new canisters, or spending.
 

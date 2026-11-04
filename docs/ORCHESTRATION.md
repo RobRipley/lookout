@@ -6,6 +6,8 @@ Lookout displays the team's decisions. It does not dispatch workers, enforce cap
 
 ## Roles and ownership
 
+The hierarchy is Product CTO → Project orchestrator → Subproject lead → task worker. A product CTO orders member projects and maintains the product overview; the project supervisor/orchestrator below remains accountable for the project board and its subproject priorities. Product manager access permits reading member boards and writing product overview/priorities, while project publishing retains its separate grants. See [Products](PRODUCTS.md) for explicit membership, UI, and API details.
+
 - **Developer/owner:** sets goals, spending boundaries, and authority for protected actions.
 - **Supervisor:** creates and maintains the overall project board, owns subproject priorities, allocates effort, checks progress and evidence, and ensures the live Lookout mirror stays accurate. Accountability for the board does not require personally editing every card.
 - **Subproject orchestrator:** owns a defined part of the project, shapes and populates its task queue, assigns and coordinates workers within the supervisor's allocation, and keeps its cards, blockers, next actions, and evidence current.

@@ -74,6 +74,13 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
   type PriorityInput = { items : [PriorityItem]; sourceRevision : Text };
   type PriorityList = { projectId : Text; data : PriorityInput; publishedAt : Int; publishedBy : Principal };
 
+  type ProductInput = { title : Text; cto : Text; summary : Text; projectIds : [Text] };
+  type ProductPriorityItem = { projectId : Text; status : Text; blockedReason : Text; nextAction : Text };
+  type Product = { id : Text; data : ProductInput; items : [ProductPriorityItem]; revision : Nat; updatedAt : Int; updatedBy : Principal };
+  type ProductManager = { productId : Text; principal : Principal };
+  var products : [Product] = [];
+  var productManagers : [ProductManager] = [];
+
   let maxProjects = 30;
   let maxCardsPerProject = 500;
   let maxColumns = 12;
@@ -135,11 +142,11 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
 
   func hasReadAccess(caller : Principal) : Bool {
     if (caller.isAnonymous()) return false;
-    isAdmin(caller) or hasPrincipal(viewers, caller) or isAnyPublisher(caller)
+    isAdmin(caller) or hasPrincipal(viewers, caller) or isAnyPublisher(caller) or isAnyProductManager(caller)
   };
 
   func canReadProject(caller : Principal, projectId : Text) : Bool {
-    isAdmin(caller) or hasPrincipal(viewers, caller) or isPublisher(caller, projectId)
+    isAdmin(caller) or hasPrincipal(viewers, caller) or isPublisher(caller, projectId) or managesProject(caller, projectId)
   };
 
   func isAnyPublisher(caller : Principal) : Bool {
@@ -280,21 +287,21 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
   };
 
   func visibleTo(caller : Principal, snapshot : Snapshot) : Bool {
-    isAdmin(caller) or hasPrincipal(viewers, caller) or isPublisher(caller, snapshot.data.projectId)
+    canReadProject(caller, snapshot.data.projectId)
   };
 
   func visiblePresentationTo(caller : Principal, presentation : Presentation) : Bool {
-    isAdmin(caller) or hasPrincipal(viewers, caller) or isPublisher(caller, presentation.projectId)
+    canReadProject(caller, presentation.projectId)
   };
   func visiblePlainSummaryTo(caller : Principal, summary : PlainSummary) : Bool {
-    isAdmin(caller) or hasPrincipal(viewers, caller) or isPublisher(caller, summary.projectId)
+    canReadProject(caller, summary.projectId)
   };
   func visibleProjectInfoTo(caller : Principal, info : ProjectInfo) : Bool {
-    isAdmin(caller) or hasPrincipal(viewers, caller) or isPublisher(caller, info.projectId)
+    canReadProject(caller, info.projectId)
   };
 
   func visiblePriorityTo(caller : Principal, priority : PriorityList) : Bool {
-    isAdmin(caller) or hasPrincipal(viewers, caller) or isPublisher(caller, priority.projectId)
+    canReadProject(caller, priority.projectId)
   };
 
   func completedState(state : Text) : Bool {
@@ -464,6 +471,114 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
       totalCharacters += item.term.size() + item.definition.size();
     };
     if (totalCharacters > 70_000) fail("presentation payload is too large");
+  };
+
+  func productIndex(id : Text) : ?Nat {
+    for (i in products.keys()) if (products[i].id == id) return ?i;
+    null
+  };
+  func isProductManager(caller : Principal, id : Text) : Bool {
+    for (grant in productManagers.vals()) if (grant.principal == caller and grant.productId == id) return true;
+    false
+  };
+  func isAnyProductManager(caller : Principal) : Bool {
+    for (grant in productManagers.vals()) if (grant.principal == caller) return true;
+    false
+  };
+  func managesProject(caller : Principal, projectId : Text) : Bool {
+    for (product in products.vals()) if (isProductManager(caller, product.id) and hasColumn(product.data.projectIds, projectId)) return true;
+    false
+  };
+  func requireProductManager(caller : Principal, id : Text) {
+    requireAuthenticated(caller);
+    if (not isAdmin(caller) and not isProductManager(caller, id)) fail("product manager access required");
+  };
+  func storeProduct(index : Nat, value : Product) {
+    products := Array.tabulate<Product>(products.size(), func(i) { if (i == index) value else products[i] });
+  };
+  public shared query ({ caller }) func canManageProduct(id : Text) : async Bool {
+    not caller.isAnonymous() and (isAdmin(caller) or isProductManager(caller, id))
+  };
+  public shared query ({ caller }) func listProducts() : async [Product] {
+    requireAuthenticated(caller);
+    if (not hasReadAccess(caller)) fail("board read access required");
+    var visible : [Product] = [];
+    for (product in products.vals()) {
+      if (isAdmin(caller) or hasPrincipal(viewers, caller) or isProductManager(caller, product.id)) {
+        visible := visible.concat([product]);
+      } else {
+        let ids = product.data.projectIds.filter(func(id) { canReadProject(caller, id) });
+        if (ids.size() > 0) visible := visible.concat([{ product with
+          data = { product.data with projectIds = ids; summary = "" };
+          items = product.items.filter(func(item) { hasColumn(ids, item.projectId) });
+        }]);
+      };
+    };
+    visible
+  };
+  public shared ({ caller }) func upsertProduct(id : Text, input : ProductInput, expectedRevision : Nat) : async Nat {
+    requireAdmin(caller);
+    if (not validProjectId(id)) fail("invalid product id");
+    if (not nonBlank(input.title) or input.title.size() > 256) fail("invalid product title");
+    if (input.cto.size() > 256 or input.summary.size() > 1200) fail("product overview is too long");
+    if (input.projectIds.size() > maxProjects) fail("too many product projects");
+    for (i in input.projectIds.keys()) {
+      let projectId = input.projectIds[i];
+      if (findSnapshot(projectId) == null) fail("product project does not exist");
+      for (j in input.projectIds.keys()) if (j < i and input.projectIds[j] == projectId) fail("duplicate product project");
+      for (other in products.vals()) if (other.id != id and hasColumn(other.data.projectIds, projectId)) fail("project already belongs to a product");
+    };
+    let index = productIndex(id);
+    let old = switch (index) { case (?i) ?products[i]; case null null };
+    let revision = switch (old) { case (?value) value.revision; case null 0 };
+    if (revision != expectedRevision) fail("product revision conflict");
+    let items = switch (old) { case (?value) value.items.filter(func(item) { hasColumn(input.projectIds, item.projectId) }); case null [] };
+    let value : Product = { id; data = input; items; revision = revision + 1; updatedAt = Time.now(); updatedBy = caller };
+    switch (index) {
+      case (?i) storeProduct(i, value);
+      case null { if (products.size() >= 30) fail("product limit reached"); products := products.concat([value]) };
+    };
+    value.revision
+  };
+  public shared ({ caller }) func publishProductPriorities(id : Text, items : [ProductPriorityItem], expectedRevision : Nat) : async Nat {
+    requireProductManager(caller, id);
+    let index = switch (productIndex(id)) { case (?i) i; case null fail("product does not exist") };
+    let old = products[index];
+    if (old.revision != expectedRevision) fail("product revision conflict");
+    if (items.size() > maxProjects) fail("too many product priorities");
+    for (i in items.keys()) {
+      let item = items[i];
+      if (not hasColumn(old.data.projectIds, item.projectId)) fail("priority project is not a product member");
+      for (j in items.keys()) if (j < i and items[j].projectId == item.projectId) fail("duplicate priority project");
+      if (item.status != "ready" and item.status != "in_progress" and item.status != "blocked" and item.status != "paused" and item.status != "done") fail("invalid priority status");
+      if (item.blockedReason.size() > 600 or item.nextAction.size() > 600) fail("priority action text is too long");
+      if ((item.status == "blocked" or item.status == "paused") and not nonBlank(item.blockedReason)) fail("blocked or paused priority requires a blocked reason");
+      if ((item.status == "ready" or item.status == "in_progress") and not nonBlank(item.nextAction)) fail("actionable priority requires a next action");
+    };
+    let value = { old with items; revision = old.revision + 1; updatedAt = Time.now(); updatedBy = caller };
+    storeProduct(index, value);
+    value.revision
+  };
+  public shared ({ caller }) func publishProductOverview(id : Text, summary : Text, expectedRevision : Nat) : async Nat {
+    requireProductManager(caller, id);
+    let index = switch (productIndex(id)) { case (?i) i; case null fail("product does not exist") };
+    let old = products[index];
+    if (old.revision != expectedRevision) fail("product revision conflict");
+    if (summary.size() > 1200) fail("product summary is too long");
+    let value = { old with data = { old.data with summary }; revision = old.revision + 1; updatedAt = Time.now(); updatedBy = caller };
+    storeProduct(index, value);
+    value.revision
+  };
+  public shared ({ caller }) func setProductManager(id : Text, manager : Principal, enabled : Bool) : async () {
+    requireAdmin(caller);
+    if (productIndex(id) == null) fail("product does not exist");
+    if (manager.isAnonymous()) fail("anonymous principal cannot be a product manager");
+    if (enabled and not isProductManager(manager, id)) {
+      if (productManagers.size() >= maxPublisherGrants) fail("product manager grant limit reached");
+      productManagers := productManagers.concat([{ productId = id; principal = manager }]);
+    } else if (not enabled) {
+      productManagers := productManagers.filter(func(grant) { grant.productId != id or grant.principal != manager });
+    };
   };
 
   public shared query ({ caller }) func session() : async Session {
@@ -821,6 +936,7 @@ persistent actor class Backend(recoveryAdmin : Principal, inviteSecret : Text) {
       admins := admins.filter(func(principal) { principal != admin });
       viewers := viewers.filter(func(principal) { principal != admin });
       publishers := publishers.filter(func(grant) { grant.principal != admin });
+      productManagers := productManagers.filter(func(grant) { grant.principal != admin });
     };
   };
 

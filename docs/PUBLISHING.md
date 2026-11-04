@@ -16,6 +16,10 @@ node scripts/publisher.mjs --config .local/publisher.json --dry-run
 
 The dry run validates inputs and reads the currently published project without writing. After publishing, the last command should report unchanged content. Identical uploads are skipped and do not reset freshness. Writes use the current revision to reject conflicting updates. If a call's outcome is unknown, reconcile by reading before retrying.
 
+## Products and project publishing
+
+An admin may explicitly assign this existing board to a product. The product CTO maintains its overview and ranked projects through separate [product controls and APIs](PRODUCTS.md). CTO display names and manager principal grants are separate. Repository metadata does not assign product membership or enroll future boards. Product managers can read member boards but require the existing project publisher grant to publish project data. Keep this manifest, source board, publishing owner, and source-revision binding unchanged.
+
 ## Source formats
 
 `curated-json` accepts the shape in `examples/board.json`: cards have `id`, `state`, `owner`, `scope`, `evidenceText`, and optional `evidenceLinks`. Preserve stable IDs and honest statuses. Curated inputs let you select the small amount of information a supervisor needs from a large internal board.

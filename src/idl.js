@@ -16,7 +16,16 @@ export const idlFactory = () => {
   const PriorityItem = IDL.Record({ id: IDL.Text, title: IDL.Text, status: IDL.Text, blockedReason: IDL.Text, nextAction: IDL.Text, cardIds: IDL.Vec(IDL.Text) });
   const PriorityInput = IDL.Record({ items: IDL.Vec(PriorityItem), sourceRevision: IDL.Text });
   const PriorityList = IDL.Record({ projectId: IDL.Text, data: PriorityInput, publishedAt: IDL.Int, publishedBy: IDL.Principal });
+  const ProductInput = IDL.Record({ title: IDL.Text, cto: IDL.Text, summary: IDL.Text, projectIds: IDL.Vec(IDL.Text) });
+  const ProductPriorityItem = IDL.Record({ projectId: IDL.Text, status: IDL.Text, blockedReason: IDL.Text, nextAction: IDL.Text });
+  const Product = IDL.Record({ id: IDL.Text, data: ProductInput, items: IDL.Vec(ProductPriorityItem), revision: IDL.Nat, updatedAt: IDL.Int, updatedBy: IDL.Principal });
   return IDL.Service({
+    listProducts: IDL.Func([], [IDL.Vec(Product)], ['query']),
+    canManageProduct: IDL.Func([IDL.Text], [IDL.Bool], ['query']),
+    upsertProduct: IDL.Func([IDL.Text, ProductInput, IDL.Nat], [IDL.Nat], []),
+    publishProductPriorities: IDL.Func([IDL.Text, IDL.Vec(ProductPriorityItem), IDL.Nat], [IDL.Nat], []),
+    publishProductOverview: IDL.Func([IDL.Text, IDL.Text, IDL.Nat], [IDL.Nat], []),
+    setProductManager: IDL.Func([IDL.Text, IDL.Principal, IDL.Bool], [], []),
     canManageProject: IDL.Func([IDL.Text], [IDL.Bool], ['query']),
     listArchives: IDL.Func([IDL.Text, IDL.Nat, IDL.Nat], [IDL.Vec(CardArchive)], ['query']),
     listArchiveHistory: IDL.Func([IDL.Text, IDL.Nat, IDL.Nat], [IDL.Vec(CardArchive)], ['query']),

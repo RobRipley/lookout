@@ -11,7 +11,8 @@ if (!testIdentity) throw new Error('LOOKOUT_TEST_IDENTITY must name the local te
 const mapping = JSON.parse(readFileSync('.icp/cache/mappings/local.ids.json','utf8'));
 const backend = mapping.backend;
 assert.equal(typeof backend, 'string');
-const host = 'http://127.0.0.1:8197';
+const host = process.env.LOOKOUT_TEST_HOST || 'http://127.0.0.1:8197';
+if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(host)) throw new Error('Integration host must be explicit localhost.');
 async function actor(identity) {
  const agent = await HttpAgent.create({identity,host});
  await agent.fetchRootKey(); // Explicit localhost-only integration harness.
@@ -218,8 +219,49 @@ assert.deepEqual((await owner.listPlainSummaries()).map(x=>x.projectId),['alpha'
 assert.deepEqual((await owner.listProjectInfo()).map(x=>x.projectId),['alpha','beta']);checks++;
 assert.ok(await owner.cycleBalance()>0n);checks++;
 await rejects(()=>owner.setAdmin(otherKey.getPrincipal(),true),/recovery admin/);
+// Products add a separate management scope without widening snapshot publishing.
+const productInput={title:'Synthetic product',cto:'Synthetic CTO',summary:'Private product strategy',projectIds:['alpha','beta']};
+await rejects(()=>guest.listProducts(),/anonymous/);
+await rejects(()=>other.upsertProduct('suite',productInput,0n),/admin/);
+assert.equal(await owner.upsertProduct('suite',productInput,0n),1n);checks++;
+await rejects(()=>owner.upsertProduct('duplicate',{...productInput,projectIds:['alpha']},0n),/already belongs/);
+await rejects(()=>owner.upsertProduct('suite',{...productInput,projectIds:['alpha','alpha']},1n),/duplicate/);
+await rejects(()=>owner.upsertProduct('suite',{...productInput,projectIds:['unknown']},1n),/does not exist/);
+await owner.setProductManager('suite',otherKey.getPrincipal(),true);
+assert.equal((await other.session()).canRead,true);
+assert.equal(await other.canManageProduct('suite'),true);
+assert.equal(await other.canManageProject('beta'),false);
+assert.equal((await other.listBoards()).length,2);
+assert.equal((await other.listProducts())[0].data.summary,productInput.summary);checks++;
+await rejects(()=>other.publish({...sample,projectId:'beta'},1n),/publisher/);
+await rejects(()=>other.publishPriorities('beta',{items:[],sourceRevision:sample.sourceRevision}),/publisher/);
+await rejects(()=>other.upsertProduct('suite',productInput,1n),/admin/);
+await rejects(()=>other.setProductManager('suite',writerKey.getPrincipal(),true),/admin/);
+const productItems=[{projectId:'beta',status:'blocked',blockedReason:'Synthetic dependency',nextAction:''},{projectId:'alpha',status:'ready',blockedReason:'',nextAction:'Review alpha'}];
+assert.equal(await other.publishProductPriorities('suite',productItems,1n),2n);checks++;
+await rejects(()=>other.publishProductPriorities('suite',productItems,1n),/revision conflict/);
+await rejects(()=>other.publishProductPriorities('suite',[productItems[0],productItems[0]],2n),/duplicate/);
+await rejects(()=>other.publishProductPriorities('suite',[{...productItems[0],projectId:'unknown'}],2n),/not a product member/);
+await rejects(()=>other.publishProductPriorities('suite',[{...productItems[0],blockedReason:''}],2n),/blocked reason/);
+await rejects(()=>other.publishProductPriorities('suite',[{...productItems[1],nextAction:''}],2n),/next action/);
+assert.equal(await other.publishProductOverview('suite','Updated strategy',2n),3n);checks++;
+await owner.setPublisher('alpha',writerKey.getPrincipal(),true);
+const projected=(await writer.listProducts())[0];
+assert.deepEqual(projected.data.projectIds,['alpha']);assert.equal(projected.data.summary,'');
+assert.deepEqual(projected.items.map(item=>item.projectId),['alpha']);checks++;
+await rejects(()=>writer.publishProductPriorities('suite',[],3n),/product manager/);
+assert.equal(await owner.upsertProduct('suite',{...productInput,projectIds:['alpha']},3n),4n);
+assert.deepEqual((await other.listBoards()).map(item=>item.data.projectId),['alpha']);
+assert.deepEqual((await other.listProducts())[0].items.map(item=>item.projectId),['alpha']);checks++;
+await owner.setProductManager('suite',otherKey.getPrincipal(),false);
+await rejects(()=>other.listBoards(),/read access/);
+await rejects(()=>other.publishProductOverview('suite','Revoked',4n),/product manager/);
+await owner.setPublisher('alpha',writerKey.getPrincipal(),false);
+// Recovery-admin revocation also clears product manager grants.
+await owner.setProductManager('suite',ownerKey.getPrincipal(),true);
 admin('setAdmin',`(principal "${op}", false)`);
 await rejects(()=>owner.listBoards(),/read access/);
+assert.equal(await owner.canManageProduct('suite'),false);checks++;
 await rejects(()=>owner.setInvite('d'.repeat(64)),/admin/);
 writeFileSync('work/backend-integration-result.json',JSON.stringify({checks,passed:true,backend,network:'local',testedAt:new Date().toISOString()},null,2));
 console.log(`PASS: ${checks} local runtime assertions (auth, scoped reads, revocation, CAS/replay, validation, invitation, recovery).`);

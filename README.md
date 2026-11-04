@@ -15,7 +15,8 @@ The source board stays authoritative. Lookout is its readable, shared window.
 
 ## What it does
 
-- Switch between projects grouped by their source repository, with their original workflow columns.
+- Organize projects into products with a CTO overview and ranked project priorities; open existing boards with their original workflow columns.
+- Keep unassigned projects visible under Other projects, grouped by source repository.
 - Toggle between Plain English and Technical project status beside ranked sub-project priorities. Your preference is remembered, with Plain English as the default.
 - See each task's priority number and owner; hover for its sub-project name.
 - Click unfamiliar terms for a contextual explanation.
@@ -68,6 +69,8 @@ The initialization helper writes private installation arguments to `work/install
 For browser login, deployment, recovery, and configuration, see [Setup](docs/SETUP.md). To connect a project or agent, see [Publishing](docs/PUBLISHING.md). You can inspect the interface with `npm run dev`; authenticated data requires a configured backend and identity flow.
 
 ## Priority-driven supervision
+
+Products add the hierarchy Product CTO → Project orchestrator → Subproject lead → task worker. Admins assign explicit project membership and grant product-scoped CTO access separately from the display name. CTOs maintain product overviews and ranked projects while existing project publishers maintain their boards. See [Products and CTO priorities](docs/PRODUCTS.md).
 
 The supervisor owns the project board, sub-project priorities, and allocation of effort. Sub-project orchestrators populate and maintain task queues and coordinate their workers. The highest actionable priority is the default focus, while independent lower-priority work may proceed when its value, cost, and shared-resource needs justify it. Move useful effort elsewhere when blocked and restore attention at a sensible checkpoint when unblocked. There is no universal concurrency count, and priorities do not grant deployment or financial authority. See the [supervisor and sub-project orchestration standard](docs/ORCHESTRATION.md).
 
