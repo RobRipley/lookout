@@ -1,8 +1,8 @@
 import React, {useState} from 'react';
 import {Principal} from '@icp-sdk/core/principal';
-import {productProjects, productFocus, productStatuses, priorityInput} from './products';
+import {productProjects, productFocus, productStatuses, priorityInput, productFreshness} from './products';
 
-export function ProductOverview({product, boards, canManage, isAdmin, actor, refresh, onSelect}) {
+export function ProductOverview({product, boards, canManage, isAdmin, actor, refresh, onSelect, now = Date.now()}) {
   const [draft, setDraft] = useState(null);
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
@@ -10,6 +10,7 @@ export function ProductOverview({product, boards, canManage, isAdmin, actor, ref
   const [metadata, setMetadata] = useState(null);
   const entries = productProjects(product, boards);
   const focus = productFocus(product, boards);
+  const freshness = productFreshness(product.updatedAt, now);
   const conflict = draft && draft.revision !== product.revision;
   const metadataConflict = metadata && metadata.revision !== product.revision;
   const edit = () => { setDraft({revision:product.revision, summary:product.data.summary, items:product.items.map(priorityInput)}); setMessage(''); };
@@ -22,7 +23,9 @@ export function ProductOverview({product, boards, canManage, isAdmin, actor, ref
   function update(index, field, value) { setDraft(d => ({...d, items:d.items.map((item,i) => i === index ? {...item,[field]:value} : item)})); }
   function move(index, offset) { setDraft(d => { const items=[...d.items]; [items[index],items[index+offset]]=[items[index+offset],items[index]]; return {...d,items}; }); }
   return <section className="product-overview">
-    <header className="board-header"><div><span className="priority-eyebrow">Product overview</span><h1>{product.data.title}</h1><p className="muted">CTO: {product.data.cto || 'Not assigned'}</p></div><button className="outline" disabled={saving} onClick={refresh}>Refresh</button></header>
+    <header className="board-header"><div><span className="priority-eyebrow">Product overview</span><h1>{product.data.title}</h1><p className="muted">CTO: {product.data.cto || 'Not assigned'}</p></div><div className="refresh-area"><span className={freshness.state === 'fresh' ? 'muted' : 'stale'} title={freshness.title}>{freshness.label}</span><button className="outline" disabled={saving} onClick={refresh}>Refresh</button></div></header>
+    {freshness.state === 'stale' && <div className="stale-banner" role="status">This product overview is over a day old. Its CTO may have newer information.</div>}
+    {freshness.state === 'unknown' && <div className="stale-banner" role="status">This product has no valid updated time, so its freshness cannot be confirmed.</div>}
     <p className="product-summary">{product.data.summary || 'No product summary published yet.'}</p>
     <div className="product-focus"><strong>Current highest actionable focus</strong><p>{focus ? focus.board.data.title : 'No actionable project priority published.'}</p>{focus?.nextAction && <p>{focus.nextAction}</p>}</div>
     <h2>Project priorities</h2><p className="muted">Rank guides attention and allocation. Independent work can continue in parallel.</p>

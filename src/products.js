@@ -16,3 +16,15 @@ export function productFocus(product, boards) {
   return productProjects(product, boards).find(item => item.rank !== null && ['ready','in_progress'].includes(item.status) && !item.blockedReason.trim()) || null;
 }
 export function priorityInput(entry) { return {projectId: entry.projectId, status: entry.status || 'ready', blockedReason: entry.blockedReason || '', nextAction: entry.nextAction || ''}; }
+// Freshness of a product's last published update (updatedAt in nanoseconds, normally bigint).
+// Missing, non-positive, malformed, or implausibly future values are 'unknown', never fresh.
+const DAY_MS = 86400000, FUTURE_SKEW_MS = 300000;
+export function productFreshness(updatedAt, now = Date.now()) {
+  let ms;
+  if (typeof updatedAt === 'bigint') ms = Number(updatedAt / 1000000n);
+  else if (typeof updatedAt === 'number' && Number.isInteger(updatedAt)) ms = Math.floor(updatedAt / 1e6);
+  if (!Number.isFinite(ms) || ms <= 0 || !Number.isFinite(now) || ms - now > FUTURE_SKEW_MS) return {state: 'unknown', label: 'Update time unavailable', title: 'This product has no valid updated time.'};
+  const minutes = Math.max(0, Math.floor((now - ms) / 60000));
+  const label = minutes < 1 ? 'just now' : minutes < 60 ? `${minutes} min ago` : minutes < 1440 ? `${Math.floor(minutes / 60)}h ago` : `${Math.floor(minutes / 1440)}d ago`;
+  return {state: now - ms > DAY_MS ? 'stale' : 'fresh', label: `Updated ${label}`, title: `Product updated ${new Date(ms).toLocaleString()}`};
+}
