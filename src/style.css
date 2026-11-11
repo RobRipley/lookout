@@ -65,14 +65,14 @@
 [data-theme="dark"] .card-size-control button{color:#adbad0}
 [data-theme="dark"] .card-size-control button[aria-pressed="true"]{background:#303d54;color:#e3eaf5;box-shadow:none}
 .full-board-view .sidebar{display:none}
-.full-board-view .workspace{position:static;margin:0;width:100%;height:100dvh;min-height:0;padding:0;overflow:hidden}
+.full-board-view .workspace{position:fixed;inset:0;z-index:40;margin:0;width:100%;height:100dvh;min-height:0;padding:0;overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr)}
 .full-board-view .workspace>:not(.toolbar):not(.board){display:none}
-.full-board-view .toolbar{position:fixed;z-index:45;inset:0 0 auto;margin:0;padding:10px 16px;min-height:56px;gap:12px;background:#fff;border-bottom:1px solid #dce3eb;box-shadow:0 2px 8px #16233b0d}
+.full-board-view .toolbar{position:relative;z-index:45;min-width:0;margin:0;padding:10px 16px;min-height:56px;gap:12px;background:#fff;border-bottom:1px solid #dce3eb;box-shadow:0 2px 8px #16233b0d}
 .full-board-view .toolbar .search{width:min(330px,26vw)}
 .full-board-view .immersive-title{display:block;max-width:24vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:650;color:#263854}
 .full-board-view .board-view-controls{margin-left:auto}
 .full-board-view .card-size-control{display:inline-flex}
-.full-board-view .board{position:fixed;z-index:40;inset:56px 0 0;margin:0;padding:14px 16px 18px;min-height:0;height:auto;overflow:auto;background:#fff;gap:10px}
+.full-board-view .board{position:relative;z-index:40;min-width:0;margin:0;padding:14px 16px 18px;min-height:0;height:auto;overflow:auto;background:#fff;gap:10px}
 .full-board-view .column{height:100%;min-height:0;flex:1 0 210px;padding-bottom:12px}
 .full-board-view .card-stack{flex:1;overflow-y:auto;overscroll-behavior:contain}
 [data-theme="dark"] .full-board-view .toolbar,[data-theme="dark"] .full-board-view .board{background:#101722;border-color:#303d52}
@@ -85,7 +85,7 @@
   .full-board-view .toolbar .search{width:100%;flex:1 0 100%;height:34px}
   .full-board-view .toolbar .toggle-label{margin-right:auto}
   .full-board-view .toolbar .task-total{display:none}
-  .full-board-view .board{inset:94px 0 0;padding:10px 10px 14px;gap:8px}
+  .full-board-view .board{padding:10px 10px 14px;gap:8px}
   .full-board-view .column{flex:0 0 min(82vw,300px)}
 }
 
@@ -103,8 +103,10 @@
 .priority-filter-button{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:1px solid #d9def2;border-radius:5px;background:#fff;color:#4e5ab5}
 .priority-filter-button:hover:not(:disabled){background:#edf0fa;border-color:#8d96e1}.priority-filter-button[aria-pressed="true"]{background:#4e5ab5;border-color:#4e5ab5;color:#fff}.priority-filter-button:disabled{cursor:not-allowed;opacity:.45}
 .priority-card-badge-button{padding:0;font-family:inherit;cursor:pointer}.priority-card-badge-active{background:#4e5ab5;border-color:#4e5ab5;color:#fff}
-.priority-filter-chip{display:inline-flex;align-items:center;gap:8px;max-width:100%;min-width:0;padding:4px 4px 4px 10px;border:1px solid #8d96e1;border-radius:999px;background:#edf0fa;color:#33408f;font-size:12px}.priority-filter-chip-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.priority-filter-chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:8px;max-width:100%;min-width:0;padding:4px 4px 4px 10px;border:1px solid #8d96e1;border-radius:16px;background:#edf0fa;color:#33408f;font-size:12px}.priority-filter-chip-label{min-width:0;overflow-wrap:anywhere}
 .priority-filter-chip button{display:inline-flex;align-items:center;gap:4px;border:0;border-radius:999px;background:#fff;padding:3px 9px;font-size:11px;white-space:nowrap}
 .priority-filter-empty{font-size:12px;color:#596980}
+.toolbar{flex-wrap:wrap;row-gap:8px}
+@media(min-width:651px){.toolbar .search{flex:1 1 120px;min-width:120px;max-width:330px}.full-board-view .toolbar .search{flex-basis:120px;max-width:min(330px,26vw)}}
 [data-theme="dark"] .priority-filter-button{background:#1a2433;border-color:#46537c;color:#c5cbff}[data-theme="dark"] .priority-filter-button[aria-pressed="true"],[data-theme="dark"] .priority-card-badge-active{background:#5d6bd0;border-color:#8390d4;color:#fff}
 [data-theme="dark"] .priority-filter-chip{background:#26315a;border-color:#5d6bd0;color:#d5d9ff}[data-theme="dark"] .priority-filter-chip button{background:#1a2433;color:#d4deec}[data-theme="dark"] .priority-filter-empty{color:#9ba9bd}
