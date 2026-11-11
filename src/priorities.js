@@ -12,3 +12,23 @@ export function prioritiesForCard(priority, board, cardId) {
     item.cardIds?.includes(cardId) ? [{ rank: index + 1, id: item.id, title: item.title }] : []
   );
 }
+
+export function priorityIsCurrent(priority, board) {
+  return Boolean(priority && board && priority.data?.sourceRevision === board.data?.sourceRevision);
+}
+
+// A filter is addressed by the durable item id, never by rank. It is only
+// usable while the priority list is current for the board and still has the item.
+export function priorityFilterItem(priority, board, itemId) {
+  if (!itemId || !priorityIsCurrent(priority, board)) return null;
+  return (priority.data?.items || []).find(item => item.id === itemId) ?? null;
+}
+
+// Only explicit cardIds link a card to a sub-project; titles and owners are never inferred.
+export function cardMatchesPriorityFilter(item, cardId) {
+  return !item || Boolean(item.cardIds?.includes(cardId));
+}
+
+export function toggleFilterId(currentId, itemId) {
+  return currentId === itemId ? null : itemId;
+}
