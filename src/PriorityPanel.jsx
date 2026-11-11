@@ -1,10 +1,19 @@
 import React from 'react';
-import { AlertTriangle, CircleHelp } from 'lucide-react';
+import { AlertTriangle, CircleHelp, Filter } from 'lucide-react';
 import { firstActionablePriority } from './priorities';
 
 const labels = { ready: 'Ready', in_progress: 'In progress', blocked: 'Blocked', paused: 'Paused', done: 'Done' };
 
-export function PriorityPanel({ priority, board }) {
+// A sibling of the disclosure, never nested in <summary>, so toggling the
+// filter and expanding the explanation stay independent controls.
+function FilterButton({ item, current, pressed, onToggle }) {
+  const linked = Boolean(item.cardIds?.length);
+  const disabled = !pressed && (!current || !linked);
+  const hint = !current ? 'Unavailable until priorities are republished for this board' : !linked ? 'No cards are linked to this sub-project' : pressed ? 'Clear sub-project filter' : 'Show only cards linked to this sub-project';
+  return <button type="button" className="priority-filter-button" aria-pressed={pressed} disabled={disabled} title={hint} aria-label={`Filter cards by sub-project: ${item.title}`} onClick={() => onToggle(item.id)}><Filter size={13}/></button>;
+}
+
+export function PriorityPanel({ priority, board, filterId = null, onToggleFilter }) {
   const current = Boolean(priority && board && priority.data.sourceRevision === board.data.sourceRevision);
   const items = priority?.data?.items || [];
   const focus = current ? firstActionablePriority(items) : null;
@@ -16,7 +25,7 @@ export function PriorityPanel({ priority, board }) {
       {!current && <div className="priority-stale" role="status"><AlertTriangle size={16}/><span>These priorities refer to an earlier board update. Focus is unavailable until they are republished.</span></div>}
       <ol className="priority-list" tabIndex={0} aria-label="Priorities in supervisor rank order">{items.map((item, index) => <li className={`priority-item priority-${item.status}`} key={item.id}>
         <span className="priority-rank" aria-label={`Rank ${index + 1}`}>{index + 1}</span>
-        <div className="priority-content">
+        <div className="priority-content"><div className="priority-item-line">
           {(item.blockedReason || item.nextAction) ? <details className="priority-explanation">
             <summary className="priority-title-row"><h3>{item.title}</h3><span className="priority-disclosure-label">{item.status === 'blocked' ? 'Blocker and next step' : item.status === 'paused' ? 'Why paused' : 'Next step'}</span><span className={`priority-status status-${item.status}`}>{labels[item.status] || item.status}</span></summary>
             <div className="priority-explanation-body">
@@ -24,7 +33,8 @@ export function PriorityPanel({ priority, board }) {
               {item.nextAction && <p className="priority-detail"><strong>Next action:</strong> {item.nextAction}</p>}
             </div>
           </details> : <div className="priority-title-row"><h3>{item.title}</h3><span className={`priority-status status-${item.status}`}>{labels[item.status] || item.status}</span></div>}
-        </div>
+          {onToggleFilter && <FilterButton item={item} current={current} pressed={filterId === item.id} onToggle={onToggleFilter}/>}
+        </div></div>
       </li>)}</ol>
     </>}
   </section>;

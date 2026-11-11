@@ -1,7 +1,7 @@
 import React, { useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-export function PriorityCardBadge({ rank, title }) {
+export function PriorityCardBadge({ rank, title, itemId, active = false, onToggle }) {
   const badgeRef = useRef(null);
   const tooltipRef = useRef(null);
   const hoverRef = useRef(false);
@@ -10,7 +10,10 @@ export function PriorityCardBadge({ rank, title }) {
   const [position, setPosition] = useState({ left: 0, top: 0, ready: false });
   const tooltipId = useId();
   const linked = Number.isInteger(rank) && Boolean(title);
-  const label = linked ? `Sub-project priority rank ${rank}: ${title}` : 'No sub-project linked';
+  const interactive = linked && Boolean(onToggle) && Boolean(itemId);
+  const Tag = interactive ? 'button' : 'span';
+  const rankLabel = linked ? `Sub-project priority rank ${rank}: ${title}` : 'No sub-project linked';
+  const label = interactive ? `${rankLabel}. ${active ? 'Clear filter' : 'Filter cards by this sub-project'}` : rankLabel;
   const tooltipText = linked ? title : 'No sub-project linked';
 
   useLayoutEffect(() => {
@@ -49,10 +52,10 @@ export function PriorityCardBadge({ rank, title }) {
   const hideIfInactive = () => { if (!hoverRef.current && !focusRef.current) setVisible(false); };
 
   return <>
-    <span
+    <Tag
       ref={badgeRef}
-      className={`priority-card-badge${linked ? '' : ' priority-card-unlinked'}`}
-      role="img"
+      className={`priority-card-badge${linked ? '' : ' priority-card-unlinked'}${interactive ? ' priority-card-badge-button' : ''}${active ? ' priority-card-badge-active' : ''}`}
+      {...(interactive ? { type: 'button', 'aria-pressed': active } : { role: 'img' })}
       tabIndex={0}
       aria-label={label}
       aria-describedby={visible ? tooltipId : undefined}
@@ -60,9 +63,9 @@ export function PriorityCardBadge({ rank, title }) {
       onMouseLeave={() => { hoverRef.current = false; hideIfInactive(); }}
       onFocus={() => { focusRef.current = true; show(); }}
       onBlur={() => { focusRef.current = false; hideIfInactive(); }}
-      onClick={event => event.stopPropagation()}
+      onClick={event => { event.stopPropagation(); if (interactive) onToggle(itemId); }}
       onKeyDown={event => event.stopPropagation()}
-    >{linked ? rank : '?'}</span>
+    >{linked ? rank : '?'}</Tag>
     {visible && createPortal(
       <span
         ref={tooltipRef}

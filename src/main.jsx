@@ -5,7 +5,7 @@ import { auth, connect, captureInvitation } from './api';
 import './style.css';
 import { definitionsFor } from './readability';
 import { ExplainedText, TermDialog } from './ExplainedText';
-import { prioritiesForCard } from './priorities';
+import { prioritiesForCard, priorityFilterItem, cardMatchesPriorityFilter, toggleFilterId } from './priorities';
 import { PriorityPanel } from './PriorityPanel';
 import { ProjectStatus } from './ProjectStatus';
 import { groupBoardsByRepository } from './repositories';
@@ -76,6 +76,7 @@ function App() {
   const [selected, setSelected] = useState(null);
   const [query, setQuery] = useState('');
   const [blockedOnly, setBlockedOnly] = useState(false);
+  const [priorityFilter, setPriorityFilter] = useState(null);
   const [fullBoard, setFullBoard] = useState(false);
   const [cardSize, setCardSize] = useState(() => {
     try { return localStorage.getItem('lookout-card-size') === 'compact' ? 'compact' : 'comfortable'; } catch { return 'comfortable'; }
@@ -101,7 +102,7 @@ function App() {
       const nextSession = await api.current.session();
       if (epoch !== generation.current) return;
       if (!nextSession.canRead || !auth.isAuthenticated()) {
-        setProducts([]); setManagedProducts([]); setBoards([]); setProjectInfo([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(nextSession); setPhase(auth.isAuthenticated() ? 'pending' : 'signedout'); return;
+        setProducts([]); setManagedProducts([]); setBoards([]); setProjectInfo([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(nextSession); setPriorityFilter(null); setPhase(auth.isAuthenticated() ? 'pending' : 'signedout'); return;
       }
       const actor = api.current;
       const [next, nextPresentations, nextPriorities, nextPlainSummaries, nextProjectInfo, nextProducts] = await Promise.all([actor.listBoards(), actor.listPresentations(), actor.listPriorities(), actor.listPlainSummaries(), actor.listProjectInfo(), actor.listProducts()]);
@@ -116,7 +117,7 @@ function App() {
       setSelected(current => next.some(b => b.data.projectId === current) ? current : next[0]?.data.projectId || null);
     } catch {
       if (epoch === generation.current) {
-        setProducts([]); setManagedProducts([]); setBoards([]); setProjectInfo([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(null); setError('Could not refresh your boards. Check your connection or sign in again.');
+        setProducts([]); setManagedProducts([]); setBoards([]); setProjectInfo([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setPriorityFilter(null); setSession(null); setError('Could not refresh your boards. Check your connection or sign in again.');
       }
     } finally {
       if (inFlight.current === epoch) inFlight.current = null;
@@ -157,7 +158,7 @@ function App() {
     };
     window.addEventListener('hashchange', invitationChanged);
     const unsubscribe = auth.subscribe(() => {
-      if (!auth.isAuthenticated()) { generation.current++; api.current = null; setProducts([]); setManagedProducts([]); setBoards([]); setProjectInfo([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(null); setPhase('signedout'); }
+      if (!auth.isAuthenticated()) { generation.current++; api.current = null; setProducts([]); setManagedProducts([]); setBoards([]); setProjectInfo([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setPriorityFilter(null); setSession(null); setPhase('signedout'); }
     });
     return () => { unsubscribe(); window.removeEventListener('hashchange', invitationChanged); };
   }, [initialize]);
@@ -193,9 +194,9 @@ function App() {
   }, [cardSize]);
 
   async function signIn() { setBusy(true); setError(''); try { await auth.signIn({ maxTimeToLive: 30n * 24n * 60n * 60n * 1_000_000_000n, maxTimeToIdle: 30n * 24n * 60n * 60n * 1_000_000_000n }); await initialize(); } catch { setError('Sign-in was not completed. You can try again.'); } finally { setBusy(false); } }
-  async function signOut() { generation.current++; api.current = null; setProducts([]); setManagedProducts([]); setBoards([]); setProjectInfo([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setSession(null); setBalance(null); setPhase('signedout'); sessionStorage.removeItem('lookout-invite'); try { await auth.signOut(); } catch { setError('Local view cleared. Sign-out could not be confirmed; close this tab if you are on a shared device.'); } }
-  function selectProduct(id) { setSelectedProduct(id); setView('product'); setFullBoard(false); setCard(null); }
-  function select(id) { setView('board'); setTerm(null); setSelected(id); setQuery(''); setBlockedOnly(false); setShowArchives(false); setCard(null); }
+  async function signOut() { generation.current++; api.current = null; setProducts([]); setManagedProducts([]); setBoards([]); setProjectInfo([]); setPresentations([]); setPlainSummaries([]); setPriorities([]); setArchives([]); setManagedProjects([]); setTerm(null); setCard(null); setPriorityFilter(null); setSession(null); setBalance(null); setPhase('signedout'); sessionStorage.removeItem('lookout-invite'); try { await auth.signOut(); } catch { setError('Local view cleared. Sign-out could not be confirmed; close this tab if you are on a shared device.'); } }
+  function selectProduct(id) { setSelectedProduct(id); setView('product'); setFullBoard(false); setCard(null); setPriorityFilter(null); }
+  function select(id) { setView('board'); setTerm(null); setPriorityFilter(null); setSelected(id); setQuery(''); setBlockedOnly(false); setShowArchives(false); setCard(null); }
   async function archiveTask(task) {
     if (!board || !managedProjects.includes(board.data.projectId) || !isCompleted(task.state)) return;
     setBusy(true); setError('');
@@ -221,13 +222,24 @@ function App() {
   const plainSummary = plainSummaries.find(item => item.projectId === selected);
   const presentationCurrent = Boolean(presentation && board && presentation.data.sourceRevision === board.data.sourceRevision);
   const priority = priorities.find(item => item.projectId === selected);
+  const filterItem = view === 'board' && priorityFilter?.projectId === selected ? priorityFilterItem(priority, board, priorityFilter.itemId) : null;
+  // A revision change or removed item makes the stored selection untrusted; drop it rather than hide cards silently.
+  useEffect(() => { if (priorityFilter && !filterItem) setPriorityFilter(null); }, [priorityFilter, filterItem]);
+  const toggleFilter = itemId => setPriorityFilter(current => {
+    const next = toggleFilterId(current?.projectId === selected ? current.itemId : null, itemId);
+    return next ? { projectId: selected, itemId: next } : null;
+  });
   const glossary = presentationCurrent ? presentation.data.glossary : [];
   const cardDefinitions = definitionsFor(glossary, card?.id);
   const projectArchives = archives.filter(entry => entry.projectId === selected);
   const archivedIds = new Set(projectArchives.map(entry => entry.cardId));
   const activeCount = board?.data.cards.filter(task => !archivedIds.has(task.id)).length || 0;
-  const filtered = board?.data.cards.filter(c => showArchives ? false : !archivedIds.has(c.id)).filter(c => (!blockedOnly || c.blocked || c.state.toLowerCase() === 'blocked') && `${c.id} ${c.title} ${c.owner} ${c.description}`.toLowerCase().includes(query.toLowerCase())) || [];
-  const archivedFiltered = projectArchives.filter(entry => `${entry.cardId} ${entry.card.title} ${entry.card.owner} ${entry.card.description}`.toLowerCase().includes(query.toLowerCase()));
+  const filtered = board?.data.cards.filter(c => showArchives ? false : !archivedIds.has(c.id)).filter(c => (!blockedOnly || c.blocked || c.state.toLowerCase() === 'blocked') && cardMatchesPriorityFilter(filterItem, c.id) && `${c.id} ${c.title} ${c.owner} ${c.description}`.toLowerCase().includes(query.toLowerCase())) || [];
+  const archivedFiltered = projectArchives.filter(entry => cardMatchesPriorityFilter(filterItem, entry.cardId) && `${entry.cardId} ${entry.card.title} ${entry.card.owner} ${entry.card.description}`.toLowerCase().includes(query.toLowerCase()));
+  const filterLinkedCount = filterItem ? (showArchives ? projectArchives.map(entry => entry.cardId) : (board?.data.cards || []).filter(c => !archivedIds.has(c.id)).map(c => c.id)).filter(id => cardMatchesPriorityFilter(filterItem, id)).length : 0;
+  const filterEmptyMessage = filterItem && (showArchives ? archivedFiltered : filtered).length === 0
+    ? `No ${showArchives ? 'archived' : 'active'} cards ${filterLinkedCount ? `linked to “${filterItem.title}” match the current search or blocked filter.` : `are linked to “${filterItem.title}”.`}`
+    : '';
   const currentCardIds = new Set(board?.data.cards.map(task => task.id) || []);
   const displayColumns = board ? (() => { const columns = boardColumns(board.data); return columns.some(column => column.trim().toLowerCase() === 'done') ? columns : [...columns, 'Done']; })() : [];
   const selectedArchive = showArchives ? projectArchives.find(entry => entry.cardId === card?.id) : null;
@@ -266,10 +278,10 @@ function App() {
 
         <div className="status-priorities-grid">
           <ProjectStatus board={board} presentation={presentation} plainSummary={plainSummary} mode={statusMode} onModeChange={setStatusMode}/>
-          <PriorityPanel priority={priority} board={board}/>
+          <PriorityPanel priority={priority} board={board} filterId={filterItem?.id ?? null} onToggleFilter={toggleFilter}/>
         </div>
         {(stale(board.publishedAt) || stale(board.data.sourceUpdatedAt)) && <div className="stale-banner"><Clock3 size={17}/> {stale(board.publishedAt) ? 'This snapshot is over a day old. Your lead may have newer information.' : 'The source board has not changed in over a day. Recent publishing does not mean recent work.'}</div>}
-        <div className="toolbar"><span className="immersive-title">{board.data.title}</span><label className="search"><Search size={18}/><input aria-label="Search tasks" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tasks…"/>{query && <button aria-label="Clear search" onClick={() => setQuery('')}><X size={15}/></button>}</label><label className="toggle-label"><input type="checkbox" checked={blockedOnly} onChange={e => setBlockedOnly(e.target.checked)}/><span className="switch"/>Blocked only</label><div className="archive-controls"><button type="button" className="outline" aria-pressed={showArchives} onClick={() => { setShowArchives(value => !value); setBlockedOnly(false); }}>{showArchives ? `Active (${activeCount})` : `Archived (${projectArchives.length})`}</button></div><span className="task-total">{showArchives ? archivedFiltered.length : filtered.length} cards</span><div className="board-view-controls" role="group" aria-label="Board display controls"><div className="card-size-control" role="group" aria-label="Card size"><button type="button" aria-pressed={cardSize === 'comfortable'} onClick={() => setCardSize('comfortable')}>Comfortable</button><button type="button" aria-pressed={cardSize === 'compact'} onClick={() => setCardSize('compact')}>Compact</button></div><button type="button" className="outline board-view-toggle" aria-pressed={fullBoard} onClick={() => setFullBoard(value => !value)}>{fullBoard ? <Minimize2 size={16}/> : <Maximize2 size={16}/>}<span>{fullBoard ? 'Exit full board' : 'Full board'}</span></button></div></div>
+        <div className="toolbar"><span className="immersive-title">{board.data.title}</span><label className="search"><Search size={18}/><input aria-label="Search tasks" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tasks…"/>{query && <button aria-label="Clear search" onClick={() => setQuery('')}><X size={15}/></button>}</label>{filterItem && <span className="priority-filter-chip" role="group" aria-label="Active sub-project filter"><span className="priority-filter-chip-label">Sub-project: <strong>{filterItem.title}</strong></span><button type="button" onClick={() => setPriorityFilter(null)}><X size={13}/>Clear filter</button></span>}<label className="toggle-label"><input type="checkbox" checked={blockedOnly} onChange={e => setBlockedOnly(e.target.checked)}/><span className="switch"/>Blocked only</label><div className="archive-controls"><button type="button" className="outline" aria-pressed={showArchives} onClick={() => { setShowArchives(value => !value); setBlockedOnly(false); }}>{showArchives ? `Active (${activeCount})` : `Archived (${projectArchives.length})`}</button></div>{filterEmptyMessage && <span className="priority-filter-empty" role="status">{filterEmptyMessage}</span>}<span className="task-total">{showArchives ? archivedFiltered.length : filtered.length} cards</span><div className="board-view-controls" role="group" aria-label="Board display controls"><div className="card-size-control" role="group" aria-label="Card size"><button type="button" aria-pressed={cardSize === 'comfortable'} onClick={() => setCardSize('comfortable')}>Comfortable</button><button type="button" aria-pressed={cardSize === 'compact'} onClick={() => setCardSize('compact')}>Compact</button></div><button type="button" className="outline board-view-toggle" aria-pressed={fullBoard} onClick={() => setFullBoard(value => !value)}>{fullBoard ? <Minimize2 size={16}/> : <Maximize2 size={16}/>}<span>{fullBoard ? 'Exit full board' : 'Full board'}</span></button></div></div>
         <div className="board" aria-label={`${board.data.title} ${showArchives ? 'archived cards' : 'Kanban board'}`}>{(showArchives ? ['Archived'] : displayColumns).map((column, index) => {
           const cards = showArchives ? archivedFiltered.map(entry => entry.card) : filtered.filter(c => cardInColumn(board.data.projectId, c.state, column));
           return <section className={`column tone-${index % 6}`} key={column} aria-label={column}><div className="column-heading"><span className="column-dot"/><h2>{displayState(column)}</h2><span className="count">{cards.length}</span></div><div className="card-stack">{cards.map(c => {
@@ -280,11 +292,11 @@ function App() {
               <div className="card-body"><button className="card-open card-id" onClick={event => { event.stopPropagation(); openCard(event); }} aria-label={`Open ${c.id}: ${c.title}`}>{c.id}</button>
                 <h3><ExplainedText text={c.title} definitions={definitionsFor(glossary, c.id)} onExplain={explainTerm}/></h3>
                 <div className="card-footer"><div className="priority-card-badges" aria-label="Linked sub-project priority ranks" onClick={event => event.stopPropagation()}>
-                  {linkedPriorities.length ? linkedPriorities.map(item => <PriorityCardBadge key={item.id} rank={item.rank} title={item.title}/>) : <PriorityCardBadge/>}
+                  {linkedPriorities.length ? linkedPriorities.map(item => <PriorityCardBadge key={item.id} rank={item.rank} title={item.title} itemId={item.id} active={filterItem?.id === item.id} onToggle={toggleFilter}/>) : <PriorityCardBadge/>}
                 </div><span>{c.owner || 'Unassigned'}</span><button className="card-more" aria-label={`View ${c.id} details`} onClick={event => { event.stopPropagation(); openCard(event); }}>···</button></div>
               </div>
             </article>;
-          })}{!cards.length && <div className="column-empty">{query || blockedOnly ? 'No matches' : showArchives ? 'No archived cards' : 'Nothing here yet'}</div>}</div></section>;
+          })}{!cards.length && <div className="column-empty">{query || blockedOnly || filterItem ? 'No matches' : showArchives ? 'No archived cards' : 'Nothing here yet'}</div>}</div></section>;
         })}</div>
         <footer className="source-footer"><Clock3 size={16}/><span>Source changed {age(board.data.sourceUpdatedAt, now)}<span className="footer-sep">·</span>Snapshot published {age(board.publishedAt, now)}</span><span className="revision" title={board.data.sourceRevision}>Revision {board.revision.toString()}</span></footer>
       </> : !error && <div className="empty-workspace"><Folder size={36}/><h1>{busy ? 'Loading your boards…' : 'Your workspace is ready.'}</h1><p>{busy ? 'Fetching the latest published snapshots.' : 'Project boards will appear here when a lead publishes the first snapshot.'}</p><button className="outline" disabled={busy} onClick={refresh}><RefreshCw size={16}/>Refresh boards</button></div>}
