@@ -21,6 +21,14 @@ The supervisor establishes the project board and subproject list. Orchestrators 
 
 Each actionable task should have a stable ID, subproject association, accountable owner, expected outcome, scope, dependencies, acceptance check, current state, and next action. Keep detailed engineering evidence in the source board or task detail; keep Lookout's Plain English summary readable. Where Lookout priorities link tasks, use the existing priority item's `cardIds`; do not invent another mapping format.
 
+## Outcome and learning checkpoints
+
+Before choosing substantial product work, the existing owner records a short note in the existing card or handoff: who the user is, what they are trying to accomplish, why it matters, the observed behavior or workaround (if known), the important assumption, and what observation would change the choice. Do not add a separate report, dashboard, or approval gate.
+
+At the next priority decision, that owner compares the expected result with what was actually observed and recommends continuing, narrowing, changing, or stopping. Report delivery evidence separately from customer impact. A merged feature, passing test, or verified deployment proves delivery; it does not establish that the user can accomplish their task more reliably. If impact has not been observed, say so rather than inventing success. Known defects still proceed under existing authority.
+
+For Lookout, an operator wants to identify which card needs attention without searching several agent chats. Clickable subproject filters and readable filter names have been delivered and browser-tested. The assumption is that these help the operator find the relevant work; actual operator success has not yet been established. At the next relevant feedback or priority decision, use that existing interaction to check whether the operator finds the intended cards and understands why they are shown. If they still need to consult chats or cannot identify the active filter, narrow or change the interaction rather than adding more controls. If it works, retain it and move to the next demonstrated need. This example creates no new feature, recurring study, or monitoring assignment; when no accepted work remains, leave implementation idle.
+
 ## Seed a useful queue, then refine it
 
 At a fresh start, each orchestrator should identify the current subproject outcome and populate enough known work to make sustained progress toward the next useful milestone. A shaped queue must survive the first task finishing or becoming blocked.
